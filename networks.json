@@ -1,0 +1,14 @@
+{
+  "sepolia": {
+    "AmmalgamFactory": {
+      "address": "0xBd68dbE675d0d1108af3aEbC5F7724Cf31c82E9a",
+      "startBlock": 7769243
+    }
+  },
+  "monad-testnet": {
+    "AmmalgamFactory": {
+      "address": "0x0A4a2cD639206b1c2372EFe35a45a8E7d9465c51",
+      "startBlock": 4856510
+    }
+  }
+}
