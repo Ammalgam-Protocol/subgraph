@@ -120,7 +120,7 @@
         "internalType": "address"
       },
       {
-        "name": "",
+        "name": "assets",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -148,7 +148,7 @@
         "internalType": "address"
       },
       {
-        "name": "",
+        "name": "assets",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -321,6 +321,12 @@
         "internalType": "address"
       },
       {
+        "name": "assets",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
         "name": "shares",
         "type": "uint256",
         "indexed": false,
@@ -344,6 +350,12 @@
         "type": "address",
         "indexed": true,
         "internalType": "address"
+      },
+      {
+        "name": "assets",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       },
       {
         "name": "shares",

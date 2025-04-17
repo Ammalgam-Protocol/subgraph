@@ -2,9 +2,21 @@
   {
     "type": "constructor",
     "inputs": [
-      { "name": "_feeToSetter", "type": "address", "internalType": "address" },
-      { "name": "_tokenFactory", "type": "address", "internalType": "address" },
-      { "name": "_pairFactory", "type": "address", "internalType": "address" },
+      {
+        "name": "_feeToSetter",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "_tokenFactory",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "_pairFactory",
+        "type": "address",
+        "internalType": "address"
+      },
       {
         "name": "_pluginRegistry",
         "type": "address",
@@ -16,39 +28,83 @@
   {
     "type": "function",
     "name": "allPairs",
-    "inputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
-    "outputs": [{ "name": "", "type": "address", "internalType": "address" }],
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
     "stateMutability": "view"
   },
   {
     "type": "function",
     "name": "allPairsLength",
     "inputs": [],
-    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
     "stateMutability": "view"
   },
   {
     "type": "function",
     "name": "createPair",
     "inputs": [
-      { "name": "tokenA", "type": "address", "internalType": "address" },
-      { "name": "tokenB", "type": "address", "internalType": "address" }
+      {
+        "name": "tokenA",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "tokenB",
+        "type": "address",
+        "internalType": "address"
+      }
     ],
-    "outputs": [{ "name": "pair", "type": "address", "internalType": "address" }],
+    "outputs": [
+      {
+        "name": "pair",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
     "stateMutability": "nonpayable"
   },
   {
     "type": "function",
     "name": "feeTo",
     "inputs": [],
-    "outputs": [{ "name": "", "type": "address", "internalType": "address" }],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
     "stateMutability": "view"
   },
   {
     "type": "function",
     "name": "feeToSetter",
     "inputs": [],
-    "outputs": [{ "name": "", "type": "address", "internalType": "address" }],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
     "stateMutability": "view"
   },
   {
@@ -56,8 +112,16 @@
     "name": "generateTokensWithinFactory",
     "inputs": [],
     "outputs": [
-      { "name": "", "type": "address", "internalType": "contract IERC20" },
-      { "name": "", "type": "address", "internalType": "contract IERC20" },
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IERC20"
+      },
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IERC20"
+      },
       {
         "name": "",
         "type": "address[6]",
@@ -70,37 +134,75 @@
     "type": "function",
     "name": "getPair",
     "inputs": [
-      { "name": "", "type": "address", "internalType": "address" },
-      { "name": "", "type": "address", "internalType": "address" }
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
     ],
-    "outputs": [{ "name": "", "type": "address", "internalType": "address" }],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
     "stateMutability": "view"
   },
   {
     "type": "function",
     "name": "pairFactory",
     "inputs": [],
-    "outputs": [{ "name": "", "type": "address", "internalType": "address" }],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
     "stateMutability": "view"
   },
   {
     "type": "function",
     "name": "pluginRegistry",
     "inputs": [],
-    "outputs": [{ "name": "", "type": "address", "internalType": "address" }],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
     "stateMutability": "view"
   },
   {
     "type": "function",
     "name": "setFeeTo",
-    "inputs": [{ "name": "newFeeTo", "type": "address", "internalType": "address" }],
+    "inputs": [
+      {
+        "name": "newFeeTo",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
     "outputs": [],
     "stateMutability": "nonpayable"
   },
   {
     "type": "function",
     "name": "setFeeToSetter",
-    "inputs": [{ "name": "newFeeToSetter", "type": "address", "internalType": "address" }],
+    "inputs": [
+      {
+        "name": "newFeeToSetter",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
     "outputs": [],
     "stateMutability": "nonpayable"
   },
@@ -108,8 +210,63 @@
     "type": "function",
     "name": "tokenFactory",
     "inputs": [],
-    "outputs": [{ "name": "", "type": "address", "internalType": "address" }],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
     "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "LendingTokensCreated",
+    "inputs": [
+      {
+        "name": "pair",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "depositL",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "depositX",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "depositY",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "borrowL",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "borrowX",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "borrowY",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
   },
   {
     "type": "event",
@@ -168,13 +325,49 @@
     ],
     "anonymous": false
   },
-  { "type": "error", "name": "BytecodeLengthZero", "inputs": [] },
-  { "type": "error", "name": "FailedOnDeploy", "inputs": [] },
-  { "type": "error", "name": "FeeToIsZeroAddress", "inputs": [] },
-  { "type": "error", "name": "FeeToSetterIsZeroAddress", "inputs": [] },
-  { "type": "error", "name": "Forbidden", "inputs": [] },
-  { "type": "error", "name": "IdenticalAddresses", "inputs": [] },
-  { "type": "error", "name": "NewTokensFailed", "inputs": [] },
-  { "type": "error", "name": "PairExists", "inputs": [] },
-  { "type": "error", "name": "ZeroAddress", "inputs": [] }
+  {
+    "type": "error",
+    "name": "BytecodeLengthZero",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "FailedOnDeploy",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "FeeToIsZeroAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "FeeToSetterIsZeroAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "Forbidden",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "IdenticalAddresses",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NewTokensFailed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "PairExists",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroAddress",
+    "inputs": []
+  }
 ]

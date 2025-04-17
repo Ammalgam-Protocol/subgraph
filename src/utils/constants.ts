@@ -20,6 +20,7 @@ export const INT_NINE = 9 as i32
 export const INT_TEN = 10 as i32
 export const INT_SIXTEEN = 16 as i32
 export const INT_EIGHTTEEN = 18 as i32
+export const INT_SIXTYFOUR = 64 as i32
 
 export const MaxUint256 = hexToBigInt(
   'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',

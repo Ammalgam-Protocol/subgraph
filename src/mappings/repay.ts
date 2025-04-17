@@ -1,15 +1,24 @@
 import { BigInt, log } from '@graphprotocol/graph-ts'
 
-import { Pool, Repay, LendingToken } from '../types/schema'
+import { Pool, Repay, LendingToken, User } from '../types/schema'
 import { Repay as RepayEvent } from '../types/templates/ERC4626Debt/ERC4626Debt'
 
 import { update } from '../utils/array'
-import { INT_ONE } from '../utils/constants'
+import { getSubgraphConfig, SubgraphConfig } from '../utils/chains'
+import { BIGINT_ZERO, BORROW_L, DEPOSIT_L, DEPOSIT_X, DEPOSIT_Y, INT_ONE } from '../utils/constants'
 import { getEventId } from '../utils/id'
+import { convertXToL, convertYToL } from '../utils/pool'
 import { getOrInitPosition } from '../utils/position'
 import { getOrInitUser } from '../utils/user'
 
 export function handleRepay(event: RepayEvent): void {
+  handleRepayHelper(event)
+}
+
+export function handleRepayHelper(
+  event: RepayEvent,
+  subgraphConfig: SubgraphConfig = getSubgraphConfig(),
+): void {
   const lendingTokenAddress = event.address.toHex()
   const lendingToken = LendingToken.load(lendingTokenAddress)
 
@@ -21,8 +30,19 @@ export function handleRepay(event: RepayEvent): void {
   const pool = Pool.load(lendingToken.pool)!
 
   if (pool) {
+    const peripheralAddresses = subgraphConfig.peripheralAddresses
     const tokenType = lendingToken.tokenType
-    const user = getOrInitUser(event.params.onBehalfOf)
+    
+    const from = getOrInitUser(event.params.sender)
+    
+    // When closing position, Peripheral contract repays `x` or `y` on behalf of user
+    let user: User
+    if (peripheralAddresses.includes(event.params.onBehalfOf.toHexString())) {
+      user = getOrInitUser(event.transaction.from)
+    } else {
+      user = getOrInitUser(event.params.onBehalfOf)
+    }
+    
     const position = getOrInitPosition(user, pool, event)
 
     // Update pool and position repay data
@@ -46,10 +66,18 @@ export function handleRepay(event: RepayEvent): void {
       position.shares[tokenType].minus(event.params.shares),
       tokenType,
     )
-
-    // Update position principal balance
-    // TODO: `convertXorYToL`
-    // position.principal = position.principal.plus(event.params.assets)
+    
+    const activeLiquidity = pool.totalAssets[DEPOSIT_L].minus(pool.totalAssets[BORROW_L])
+    
+    let principal = BIGINT_ZERO
+    if (tokenType == DEPOSIT_X) {
+      principal = convertXToL(event.params.assets, pool.reserveX, activeLiquidity)
+    } else if (tokenType == DEPOSIT_Y) {
+      principal = convertYToL(event.params.assets, pool.reserveY, activeLiquidity)
+    }
+    
+    // Update position principal balance in terms of Liquidity
+    position.principal = position.principal.plus(principal)
 
     // Update repay count
     pool.repayCount += INT_ONE
@@ -81,7 +109,7 @@ export function handleRepay(event: RepayEvent): void {
     repay.shares = event.params.shares
     repay.pool = pool.id
     repay.user = user.id
-    repay.from = getOrInitUser(event.params.sender).id
+    repay.from = from.id
     repay.position = position.id
 
     repay.save()

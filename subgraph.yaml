@@ -9,8 +9,8 @@ dataSources:
     network: sepolia
     source:
       abi: AmmalgamFactory
-      address: "0xBd68dbE675d0d1108af3aEbC5F7724Cf31c82E9a"
-      startBlock: 7769243
+      address: "0xda528b5e8B9F2cA274bEC5837D32674E184833A2"
+      startBlock: 8123449
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
@@ -115,9 +115,9 @@ templates:
         - name: ERC20DepositLiquidity
           file: ./abis/ERC20DepositLiquidity.json
       eventHandlers:
-        - event: Mint(indexed address,indexed address,uint256)
+        - event: Mint(indexed address,indexed address,uint256,uint256)
           handler: handleDepositLiquidity
-        - event: Burn(indexed address,indexed address,uint256)
+        - event: Burn(indexed address,indexed address,uint256,uint256)
           handler: handleWithdrawLiquidity
         - event: Transfer(indexed address,indexed address,uint256)
           handler: handleTransfer
@@ -167,9 +167,9 @@ templates:
         - name: ERC20DebtLiquidity
           file: ./abis/ERC20DebtLiquidity.json
       eventHandlers:
-        - event: BorrowLiquidity(indexed address,uint256,indexed address)
+        - event: BorrowLiquidity(indexed address,indexed address,uint256,uint256)
           handler: handleBorrowLiquidity
-        - event: RepayLiquidity(indexed address,indexed address,uint256)
+        - event: RepayLiquidity(indexed address,indexed address,uint256,uint256)
           handler: handleRepayLiquidity
         - event: Transfer(indexed address,indexed address,uint256)
           handler: handleTransfer

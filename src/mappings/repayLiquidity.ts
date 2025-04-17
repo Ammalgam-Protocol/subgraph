@@ -1,15 +1,23 @@
 import { BigInt, log } from '@graphprotocol/graph-ts'
 
-import { Pool, Repay, LendingToken } from '../types/schema'
+import { Pool, Repay, LendingToken, User } from '../types/schema'
 import { RepayLiquidity as RepayLiquidityEvent } from '../types/templates/ERC20DebtLiquidity/ERC20DebtLiquidity'
 
 import { update } from '../utils/array'
+import { getSubgraphConfig, SubgraphConfig } from '../utils/chains'
 import { BORROW_L, INT_ONE } from '../utils/constants'
 import { getEventId } from '../utils/id'
 import { getOrInitPosition } from '../utils/position'
 import { getOrInitUser } from '../utils/user'
 
 export function handleRepayLiquidity(event: RepayLiquidityEvent): void {
+  handleRepayLiquidityHelper(event)
+}
+
+export function handleRepayLiquidityHelper(
+  event: RepayLiquidityEvent,
+  subgraphConfig: SubgraphConfig = getSubgraphConfig(),
+): void {
   const lendingTokenAddress = event.address.toHex()
   const lendingToken = LendingToken.load(lendingTokenAddress)
 
@@ -21,38 +29,46 @@ export function handleRepayLiquidity(event: RepayLiquidityEvent): void {
   const pool = Pool.load(lendingToken.pool)!
 
   if (pool) {
+    const peripheralAddresses = subgraphConfig.peripheralAddresses
     const tokenType = BORROW_L
-    const user = getOrInitUser(event.params.onBehalfOf)
+    
+    const from = getOrInitUser(event.params.sender)
+    
+    // When closing position, Peripheral contract repays liquidity on behalf of user
+    let user: User
+    if (peripheralAddresses.includes(event.params.onBehalfOf.toHexString())) {
+      user = getOrInitUser(event.transaction.from)
+    } else {
+      user = getOrInitUser(event.params.onBehalfOf)
+    }
+    
     const position = getOrInitPosition(user, pool, event)
 
     // Update pool and position repay data
-    // TODO: Update it to `assets` after deploying latest core contracts
     pool.totalAssets = update<BigInt>(
       pool.totalAssets,
-      pool.totalAssets[tokenType].minus(event.params.repayAmountLShares),
+      pool.totalAssets[tokenType].minus(event.params.assets),
       tokenType,
     )
     pool.totalShares = update<BigInt>(
       pool.totalShares,
-      pool.totalShares[tokenType].minus(event.params.repayAmountLShares),
+      pool.totalShares[tokenType].minus(event.params.shares),
       tokenType,
     )
 
-    // TODO: Update it to `assets` after deploying latest core contracts
     position.assets = update<BigInt>(
       position.assets,
-      position.assets[tokenType].minus(event.params.repayAmountLShares),
+      position.assets[tokenType].minus(event.params.assets),
       tokenType,
     )
     position.shares = update<BigInt>(
       position.shares,
-      position.shares[tokenType].minus(event.params.repayAmountLShares),
+      position.shares[tokenType].minus(event.params.shares),
       tokenType,
     )
 
     // Update position principal balance
-    // TODO: Update it to `assets` after deploying latest core contracts
-    position.principal = position.principal.plus(event.params.repayAmountLShares)
+    position.principal = position.principal.plus(event.params.assets)
 
     // Update repay count
     pool.repayCount += INT_ONE
@@ -80,12 +96,11 @@ export function handleRepayLiquidity(event: RepayLiquidityEvent): void {
 
     // repay details
     repay.asset = lendingToken.id
-    // TODO: Update it to `assets` after deploying latest core contracts
-    repay.amount = event.params.repayAmountLShares
-    repay.shares = event.params.repayAmountLShares
+    repay.amount = event.params.assets
+    repay.shares = event.params.shares
     repay.pool = pool.id
     repay.user = user.id
-    repay.from = getOrInitUser(event.params.sender).id
+    repay.from = from.id
     repay.position = position.id
 
     repay.save()

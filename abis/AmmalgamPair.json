@@ -375,6 +375,49 @@
   },
   {
     "type": "event",
+    "name": "InterestAccrued",
+    "inputs": [
+      {
+        "name": "depositLAssets",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      },
+      {
+        "name": "depositXAssets",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      },
+      {
+        "name": "depositYAssets",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      },
+      {
+        "name": "borrowLAssets",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      },
+      {
+        "name": "borrowXAssets",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      },
+      {
+        "name": "borrowYAssets",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Swap",
     "inputs": [
       {
@@ -449,6 +492,19 @@
     "anonymous": false
   },
   {
+    "type": "event",
+    "name": "UpdateLendingTick",
+    "inputs": [
+      {
+        "name": "lendingStateTick",
+        "type": "int16",
+        "indexed": false,
+        "internalType": "int16"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "AmmalgamCannotBorrowAgainstSameCollateral",
     "inputs": []
@@ -486,6 +542,11 @@
   {
     "type": "error",
     "name": "InsufficientInputAmount",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InsufficientLiquidity",
     "inputs": []
   },
   {

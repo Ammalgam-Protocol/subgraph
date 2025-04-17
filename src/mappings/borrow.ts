@@ -1,15 +1,24 @@
 import { BigInt, log } from '@graphprotocol/graph-ts'
 
-import { Pool, Borrow, LendingToken } from '../types/schema'
+import { Pool, Borrow, LendingToken, User } from '../types/schema'
 import { Borrow as BorrowEvent } from '../types/templates/ERC4626Debt/ERC4626Debt'
 
 import { update } from '../utils/array'
-import { INT_ONE } from '../utils/constants'
+import { getSubgraphConfig, SubgraphConfig } from '../utils/chains'
+import { BIGINT_ZERO, BORROW_L, DEPOSIT_L, DEPOSIT_X, DEPOSIT_Y, INT_ONE } from '../utils/constants'
 import { getEventId } from '../utils/id'
+import { convertXToL, convertYToL } from '../utils/pool'
 import { getOrInitPosition } from '../utils/position'
 import { getOrInitUser } from '../utils/user'
 
 export function handleBorrow(event: BorrowEvent): void {
+  handleBorrowHelper(event)
+}
+
+export function handleBorrowHelper(
+  event: BorrowEvent,
+  subgraphConfig: SubgraphConfig = getSubgraphConfig(),
+): void {
   const lendingTokenAddress = event.address.toHex()
   const lendingToken = LendingToken.load(lendingTokenAddress)
 
@@ -21,8 +30,19 @@ export function handleBorrow(event: BorrowEvent): void {
   const pool = Pool.load(lendingToken.pool)!
 
   if (pool) {
+    const peripheralAddresses = subgraphConfig.peripheralAddresses
     const tokenType = lendingToken.tokenType
-    const user = getOrInitUser(event.params.to)
+    
+    const from = getOrInitUser(event.params.sender)
+    
+    // When closing position, Peripheral contract borrows `x` or `y` on behalf of user
+    let user: User
+    if (peripheralAddresses.includes(event.params.to.toHexString())) {
+      user = getOrInitUser(event.transaction.from)
+    } else {
+      user = getOrInitUser(event.params.to)
+    }
+    
     const position = getOrInitPosition(user, pool, event)
 
     // Update pool and position borrow data
@@ -46,10 +66,18 @@ export function handleBorrow(event: BorrowEvent): void {
       position.shares[tokenType].plus(event.params.shares),
       tokenType,
     )
-
-    // Update position principal balance
-    // TODO: `convertXorYToL`
-    // position.principal = position.principal.minus(event.params.assets)
+    
+    const activeLiquidity = pool.totalAssets[DEPOSIT_L].minus(pool.totalAssets[BORROW_L])
+    
+    let principal = BIGINT_ZERO
+    if (tokenType == DEPOSIT_X) {
+      principal = convertXToL(event.params.assets, pool.reserveX, activeLiquidity)
+    } else if (tokenType == DEPOSIT_Y) {
+      principal = convertYToL(event.params.assets, pool.reserveY, activeLiquidity)
+    }
+    
+    // Update position principal balance in terms of Liquidity
+    position.principal = position.principal.minus(principal)
 
     // Update borrow count
     pool.borrowCount += INT_ONE
@@ -81,7 +109,7 @@ export function handleBorrow(event: BorrowEvent): void {
     borrow.shares = event.params.shares
     borrow.pool = pool.id
     borrow.user = user.id
-    borrow.from = getOrInitUser(event.params.sender).id
+    borrow.from = from.id
     borrow.position = position.id
 
     borrow.save()

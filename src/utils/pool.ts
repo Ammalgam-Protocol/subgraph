@@ -1,6 +1,5 @@
 import { Address, BigInt, log } from '@graphprotocol/graph-ts'
 
-import { AmmalgamPair as PoolContract } from '../types/AmmalgamFactory/AmmalgamPair'
 import { LendingToken, Pool } from '../types/schema'
 
 import { BIGDECIMAL_ZERO, BIGINT_ZERO, DEFAULT_TOKEN_BALANCES, INT_ZERO } from './constants'
@@ -35,17 +34,10 @@ export function createPool(poolAddress: Address): Pool {
 
 export function createLendingToken(
   poolAddress: Address,
+  lendingTokenAddress: Address,
   tokenType: i32,
   nativeTokenDetails: NativeTokenDetails,
 ): LendingToken {
-  const contract = PoolContract.bind(poolAddress)
-
-  let lendingTokenAddress = Address.zero()
-  const lendingTokenResult = contract.try_tokens(BigInt.fromI32(tokenType))
-  if (!lendingTokenResult.reverted) {
-    lendingTokenAddress = lendingTokenResult.value
-  }
-
   const lendingToken = new LendingToken(lendingTokenAddress.toHexString())
   lendingToken.symbol = fetchTokenSymbol(lendingTokenAddress, [], nativeTokenDetails)
   lendingToken.name = fetchTokenName(lendingTokenAddress, [], nativeTokenDetails)
@@ -61,4 +53,20 @@ export function createLendingToken(
   lendingToken.save()
 
   return lendingToken
+}
+
+export function convertXToL(
+  amountX: BigInt,
+  reserveX: BigInt,
+  activeLiquidity: BigInt,
+): BigInt  {
+  return amountX.times(activeLiquidity).div(reserveX)
+}
+
+export function convertYToL(
+  amountY: BigInt,
+  reserveY: BigInt,
+  activeLiquidity: BigInt,
+): BigInt {
+  return amountY.times(activeLiquidity).div(reserveY)
 }

@@ -1,15 +1,24 @@
 import { BigInt, log } from '@graphprotocol/graph-ts'
 
-import { Pool, Withdraw, LendingToken } from '../types/schema'
+import { Pool, Withdraw, LendingToken, User } from '../types/schema'
 import { Withdraw as WithdrawEvent } from '../types/templates/ERC4626Deposit/ERC4626Deposit'
 
 import { update } from '../utils/array'
-import { INT_ONE } from '../utils/constants'
+import { getSubgraphConfig, SubgraphConfig } from '../utils/chains'
+import { BIGINT_ZERO, BORROW_L, DEPOSIT_L, DEPOSIT_X, DEPOSIT_Y, INT_ONE } from '../utils/constants'
 import { getEventId } from '../utils/id'
+import { convertXToL, convertYToL } from '../utils/pool'
 import { getOrInitPosition } from '../utils/position'
 import { getOrInitUser } from '../utils/user'
 
 export function handleWithdraw(event: WithdrawEvent): void {
+  handleWithdrawHelper(event)
+}
+
+export function handleWithdrawHelper(
+  event: WithdrawEvent,
+  subgraphConfig: SubgraphConfig = getSubgraphConfig(),
+): void {
   const lendingTokenAddress = event.address.toHex()
   const lendingToken = LendingToken.load(lendingTokenAddress)
 
@@ -21,8 +30,19 @@ export function handleWithdraw(event: WithdrawEvent): void {
   const pool = Pool.load(lendingToken.pool)!
 
   if (pool) {
+    const peripheralAddresses = subgraphConfig.peripheralAddresses
     const tokenType = lendingToken.tokenType
-    const user = getOrInitUser(event.params.receiver)
+    
+    const from = getOrInitUser(event.params.sender)
+    
+    // When closing position, Peripheral contract burns user `x` or `y` assets
+    let user: User
+    if (peripheralAddresses.includes(event.params.receiver.toHexString())) {
+      user = getOrInitUser(event.transaction.from)
+    } else {
+      user = getOrInitUser(event.params.receiver)
+    }
+    
     const position = getOrInitPosition(user, pool, event)
 
     // Update pool and position deposit data
@@ -46,10 +66,18 @@ export function handleWithdraw(event: WithdrawEvent): void {
       position.shares[tokenType].minus(event.params.shares),
       tokenType,
     )
-
-    // Update position principal balance
-    // TODO: `convertXorYToL`
-    // position.principal = position.principal.minus(event.params.assets)
+    
+    const activeLiquidity = pool.totalAssets[DEPOSIT_L].minus(pool.totalAssets[BORROW_L])
+    
+    let principal = BIGINT_ZERO
+    if (tokenType == DEPOSIT_X) {
+      principal = convertXToL(event.params.assets, pool.reserveX, activeLiquidity)
+    } else if (tokenType == DEPOSIT_Y) {
+      principal = convertYToL(event.params.assets, pool.reserveY, activeLiquidity)
+    }
+    
+    // Update position principal balance in terms of Liquidity
+    position.principal = position.principal.minus(principal)
 
     // Update withdraw count
     pool.withdrawCount += INT_ONE
@@ -81,7 +109,7 @@ export function handleWithdraw(event: WithdrawEvent): void {
     withdraw.shares = event.params.shares
     withdraw.pool = pool.id
     withdraw.user = user.id
-    withdraw.from = getOrInitUser(event.params.sender).id
+    withdraw.from = from.id
     withdraw.position = position.id
 
     withdraw.save()

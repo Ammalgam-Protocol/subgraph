@@ -10,6 +10,7 @@ import {
   ERC20DepositLiquidity as DepositLiquidityTemplate,
 } from '../types/templates'
 
+import { parseLendingTokens } from '../utils'
 import { SubgraphConfig, getSubgraphConfig } from '../utils/chains'
 import {
   BORROW_L,
@@ -24,6 +25,8 @@ import {
 } from '../utils/constants'
 import { createLendingToken, createPool } from '../utils/pool'
 import { fetchTokenDecimals, fetchTokenName, fetchTokenSymbol } from '../utils/token'
+
+const LENDING_TOKENS_CREATED_TOPIC = '0xb15f210cfca75579c1238a305f2f8d7ead2cf10aa8c5b5a33bad8911e60279ed'
 
 export function handlePairCreated(event: PairCreatedEvent): void {
   handlePairCreatedHelper(event)
@@ -109,15 +112,30 @@ export function handlePairCreatedHelper(
   pool.save()
   tokenX.save()
   tokenY.save()
-
+  
+  let lendingTokens: Address[] = []
+  if (event.receipt !== null) {
+    const eventLogs = event.receipt!.logs
+    for (let i = 0; i < eventLogs.length; i++) {
+      const eventLog = eventLogs[i];
+      for (let j = 0; j < eventLog.topics.length; j++) {
+        if (eventLog.topics[j].toHexString() == LENDING_TOKENS_CREATED_TOPIC) {
+          lendingTokens = parseLendingTokens(eventLog.data.toHexString())
+        }
+      }
+    }
+  } else {
+    log.critical('No lending tokens created for pool: {}', [poolAddress.toHexString()])
+  }
+  
   // Set `lendingTokens` after saving the `pool` and underlying tokens
-  const depositLToken = createLendingToken(poolAddress, DEPOSIT_L, nativeTokenDetails)
-  const depositXToken = createLendingToken(poolAddress, DEPOSIT_X, nativeTokenDetails)
-  const depositYToken = createLendingToken(poolAddress, DEPOSIT_Y, nativeTokenDetails)
-  const borrowLToken = createLendingToken(poolAddress, BORROW_L, nativeTokenDetails)
-  const borrowXToken = createLendingToken(poolAddress, BORROW_X, nativeTokenDetails)
-  const borrowYToken = createLendingToken(poolAddress, BORROW_Y, nativeTokenDetails)
-
+  const depositLToken = createLendingToken(poolAddress, lendingTokens[DEPOSIT_L], DEPOSIT_L, nativeTokenDetails)
+  const depositXToken = createLendingToken(poolAddress, lendingTokens[DEPOSIT_X], DEPOSIT_X, nativeTokenDetails)
+  const depositYToken = createLendingToken(poolAddress, lendingTokens[DEPOSIT_Y], DEPOSIT_Y, nativeTokenDetails)
+  const borrowLToken = createLendingToken(poolAddress, lendingTokens[BORROW_L], BORROW_L, nativeTokenDetails)
+  const borrowXToken = createLendingToken(poolAddress, lendingTokens[BORROW_X], BORROW_X, nativeTokenDetails)
+  const borrowYToken = createLendingToken(poolAddress, lendingTokens[BORROW_Y], BORROW_Y, nativeTokenDetails)
+  
   pool.lendingTokens = [
     depositLToken.id,
     depositXToken.id,

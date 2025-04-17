@@ -49,18 +49,19 @@ export function getSubgraphConfig(): SubgraphConfig {
   if (selectedNetwork == SEPOLIA_NETWORK_NAME) {
     return {
       peripheralAddresses: [
-        '0x65dfbe3f4ebaee887d0188fb42c674cf6087b0fe', // old
-        '0xc93d3f8b640db4e0a9ab84a2b073f41db0478f31', // latest
+        '0xfe460940ffb3339fed01efacfbb39417be70e2e8', // latest
       ],
       wrappedNativeAddress: '0xfff9976782d46cc05630d1f6ebab18b2324d6b14', // WETH
       stablecoinAddresses: [
-        '0x1c7d4b196cb0c7b01d743fbc6116a902379c7238', // USDC
-        '0xaa8e23fb1079ea71e0a56f48a2aa51851d8433d0', // USDT
+        '0x260821c946590213521042ecb215f8ce6f38757d', // DAI
+        '0xba27581cf84ee43ec6a354f56ea2e424223d122f', // USDC
+        '0x48b717744ac9162766e3c12d81851bfe178e28de', // USDT
       ],
       whitelistTokens: [
         '0x0000000000000000000000000000000000000000', // Native ETH
-        '0x1c7d4b196cb0c7b01d743fbc6116a902379c7238', // USDC
-        '0xaa8e23fb1079ea71e0a56f48a2aa51851d8433d0', // USDT,
+        '0x260821c946590213521042ecb215f8ce6f38757d', // DAI
+        '0xba27581cf84ee43ec6a354f56ea2e424223d122f', // USDC
+        '0x48b717744ac9162766e3c12d81851bfe178e28de', // USDT,
         '0xfff9976782d46cc05630d1f6ebab18b2324d6b14', // WETH
       ],
       tokenOverrides: [],

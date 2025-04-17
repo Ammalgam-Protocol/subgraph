@@ -26,10 +26,9 @@ export function handleDepositLiquidity(event: DepositEvent): void {
     const position = getOrInitPosition(user, pool, event)
 
     // Update pool and position deposit data
-    // TODO: Update it to `assets` after deploying latest core contracts
     pool.totalAssets = update<BigInt>(
       pool.totalAssets,
-      pool.totalAssets[tokenType].plus(event.params.shares),
+      pool.totalAssets[tokenType].plus(event.params.assets),
       tokenType,
     )
     pool.totalShares = update<BigInt>(
@@ -38,10 +37,9 @@ export function handleDepositLiquidity(event: DepositEvent): void {
       tokenType,
     )
 
-    // TODO: Update it to `assets` after deploying latest core contracts
     position.assets = update<BigInt>(
       position.assets,
-      position.assets[tokenType].plus(event.params.shares),
+      position.assets[tokenType].plus(event.params.assets),
       tokenType,
     )
     position.shares = update<BigInt>(
@@ -51,8 +49,7 @@ export function handleDepositLiquidity(event: DepositEvent): void {
     )
 
     // Update position principal balance
-    // TODO: Update it to `assets` after deploying latest core contracts
-    position.principal = position.principal.plus(event.params.shares)
+    position.principal = position.principal.plus(event.params.assets)
 
     // Update deposit count
     pool.depositCount += INT_ONE
@@ -80,8 +77,7 @@ export function handleDepositLiquidity(event: DepositEvent): void {
 
     // Deposit details
     deposit.asset = lendingToken.id
-    // TODO: Update it to `assets` after deploying latest core contracts
-    deposit.amount = event.params.shares
+    deposit.amount = event.params.assets
     deposit.shares = event.params.shares
     deposit.pool = pool.id
     deposit.user = user.id

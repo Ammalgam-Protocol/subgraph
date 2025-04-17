@@ -1,15 +1,23 @@
 import { BigInt, log } from '@graphprotocol/graph-ts'
 
-import { Pool, Withdraw, LendingToken } from '../types/schema'
+import { Pool, Withdraw, LendingToken, User } from '../types/schema'
 import { Burn as WithdrawEvent } from '../types/templates/ERC20DepositLiquidity/ERC20DepositLiquidity'
 
 import { update } from '../utils/array'
+import { getSubgraphConfig, SubgraphConfig } from '../utils/chains'
 import { DEPOSIT_L, INT_ONE } from '../utils/constants'
 import { getEventId } from '../utils/id'
 import { getOrInitPosition } from '../utils/position'
 import { getOrInitUser } from '../utils/user'
 
 export function handleWithdrawLiquidity(event: WithdrawEvent): void {
+  handleWithdrawLiquidityHelper(event)
+}
+
+export function handleWithdrawLiquidityHelper(
+  event: WithdrawEvent,
+  subgraphConfig: SubgraphConfig = getSubgraphConfig(),
+): void {
   const lendingTokenAddress = event.address.toHex()
   const lendingToken = LendingToken.load(lendingTokenAddress)
 
@@ -21,15 +29,25 @@ export function handleWithdrawLiquidity(event: WithdrawEvent): void {
   const pool = Pool.load(lendingToken.pool)!
 
   if (pool) {
+    const peripheralAddresses = subgraphConfig.peripheralAddresses
     const tokenType = DEPOSIT_L
-    const user = getOrInitUser(event.params.to)
+    
+    const from = getOrInitUser(event.params.sender)
+    
+    // When closing position, Peripheral contract burns user liquidity assets
+    let user: User
+    if (peripheralAddresses.includes(event.params.to.toHexString())) {
+      user = getOrInitUser(event.transaction.from)
+    } else {
+      user = getOrInitUser(event.params.to)
+    }
+    
     const position = getOrInitPosition(user, pool, event)
 
     // Update pool and position deposit data
-    // TODO: Update it to `assets` after deploying latest core contracts
     pool.totalAssets = update<BigInt>(
       pool.totalAssets,
-      pool.totalAssets[tokenType].minus(event.params.shares),
+      pool.totalAssets[tokenType].minus(event.params.assets),
       tokenType,
     )
     pool.totalShares = update<BigInt>(
@@ -38,10 +56,9 @@ export function handleWithdrawLiquidity(event: WithdrawEvent): void {
       tokenType,
     )
 
-    // TODO: Update it to `assets` after deploying latest core contracts
     position.assets = update<BigInt>(
       position.assets,
-      position.assets[tokenType].minus(event.params.shares),
+      position.assets[tokenType].minus(event.params.assets),
       tokenType,
     )
     position.shares = update<BigInt>(
@@ -51,8 +68,7 @@ export function handleWithdrawLiquidity(event: WithdrawEvent): void {
     )
 
     // Update position principal balance
-    // TODO: Update it to `assets` after deploying latest core contracts
-    position.principal = position.principal.minus(event.params.shares)
+    position.principal = position.principal.minus(event.params.assets)
 
     // Update withdraw count
     pool.withdrawCount += INT_ONE
@@ -80,12 +96,11 @@ export function handleWithdrawLiquidity(event: WithdrawEvent): void {
 
     // Withdraw details
     withdraw.asset = lendingToken.id
-    // TODO: Update it to `assets` after deploying latest core contracts
-    withdraw.amount = event.params.shares
+    withdraw.amount = event.params.assets
     withdraw.shares = event.params.shares
     withdraw.pool = pool.id
     withdraw.user = user.id
-    withdraw.from = getOrInitUser(event.transaction.from).id
+    withdraw.from = from.id
     withdraw.position = position.id
 
     withdraw.save()

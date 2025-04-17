@@ -4,8 +4,9 @@ import { Pool, Deposit, LendingToken } from '../types/schema'
 import { Deposit as DepositEvent } from '../types/templates/ERC4626Deposit/ERC4626Deposit'
 
 import { update } from '../utils/array'
-import { INT_ONE } from '../utils/constants'
+import { BIGINT_ZERO, BORROW_L, DEPOSIT_L, DEPOSIT_X, DEPOSIT_Y, INT_ONE, INT_ZERO } from '../utils/constants'
 import { getEventId } from '../utils/id'
+import { convertXToL, convertYToL } from '../utils/pool'
 import { getOrInitPosition } from '../utils/position'
 import { getOrInitUser } from '../utils/user'
 
@@ -46,10 +47,18 @@ export function handleDeposit(event: DepositEvent): void {
       position.shares[tokenType].plus(event.params.shares),
       tokenType,
     )
-
-    // Update position principal balance
-    // TODO: `convertXorYToL`
-    // position.principal = position.principal.plus(event.params.assets)
+    
+    const activeLiquidity = pool.totalAssets[DEPOSIT_L].minus(pool.totalAssets[BORROW_L])
+    
+    let principal = BIGINT_ZERO
+    if (tokenType == DEPOSIT_X) {
+      principal = convertXToL(event.params.assets, pool.reserveX, activeLiquidity)
+    } else if (tokenType == DEPOSIT_Y) {
+      principal = convertYToL(event.params.assets, pool.reserveY, activeLiquidity)
+    }
+    
+    // Update position principal balance in terms of Liquidity
+    position.principal = position.principal.plus(principal)
 
     // Update deposit count
     pool.depositCount += INT_ONE

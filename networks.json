@@ -1,8 +1,8 @@
 {
   "sepolia": {
     "AmmalgamFactory": {
-      "address": "0xBd68dbE675d0d1108af3aEbC5F7724Cf31c82E9a",
-      "startBlock": 7769243
+      "address": "0xda528b5e8B9F2cA274bEC5837D32674E184833A2",
+      "startBlock": 8123449
     }
   },
   "monad-testnet": {
