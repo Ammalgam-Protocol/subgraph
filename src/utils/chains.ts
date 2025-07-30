@@ -49,7 +49,10 @@ export function getSubgraphConfig(): SubgraphConfig {
   if (selectedNetwork == SEPOLIA_NETWORK_NAME) {
     return {
       peripheralAddresses: [
-        '0xfe460940ffb3339fed01efacfbb39417be70e2e8', // latest
+        '0x737da85f70db0d93b9d2c189aa7fba0841b8463b', // latest commit: 15ac575d5d251b889a1ea049cf829e4ee70f9a92
+        '0x5f75c9485f2f47ab6f6887a2f31cdf5ea0bf282d', // commit: 7fa05dbfbfc061daa993ce0dc91ecd8b2d9ea1fa
+        '0x2f2f434b4616b942c9e5b2526b7791e009f18b19', // commit: 8e62ddaae3c251ae95aba01d428e3a1826b82759
+        '0xfe460940ffb3339fed01efacfbb39417be70e2e8', // initial
       ],
       wrappedNativeAddress: '0xfff9976782d46cc05630d1f6ebab18b2324d6b14', // WETH
       stablecoinAddresses: [
