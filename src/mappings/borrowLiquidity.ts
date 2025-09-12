@@ -31,9 +31,9 @@ export function handleBorrowLiquidityHelper(
   if (pool) {
     const peripheralAddresses = subgraphConfig.peripheralAddresses
     const tokenType = BORROW_L
-    
+
     const from = getOrInitUser(event.params.sender)
-    
+
     // When closing position, Peripheral contract borrows liquidity on behalf of user
     let user: User
     if (peripheralAddresses.includes(event.params.to.toHexString())) {
@@ -41,7 +41,7 @@ export function handleBorrowLiquidityHelper(
     } else {
       user = getOrInitUser(event.params.to)
     }
-    
+
     const position = getOrInitPosition(user, pool, event)
 
     // Update pool and position borrow data

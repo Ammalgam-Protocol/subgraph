@@ -31,9 +31,9 @@ export function handleRepayLiquidityHelper(
   if (pool) {
     const peripheralAddresses = subgraphConfig.peripheralAddresses
     const tokenType = BORROW_L
-    
+
     const from = getOrInitUser(event.params.sender)
-    
+
     // When closing position, Peripheral contract repays liquidity on behalf of user
     let user: User
     if (peripheralAddresses.includes(event.params.onBehalfOf.toHexString())) {
@@ -41,7 +41,7 @@ export function handleRepayLiquidityHelper(
     } else {
       user = getOrInitUser(event.params.onBehalfOf)
     }
-    
+
     const position = getOrInitPosition(user, pool, event)
 
     // Update pool and position repay data

@@ -55,18 +55,10 @@ export function createLendingToken(
   return lendingToken
 }
 
-export function convertXToL(
-  amountX: BigInt,
-  reserveX: BigInt,
-  activeLiquidity: BigInt,
-): BigInt  {
+export function convertXToL(amountX: BigInt, reserveX: BigInt, activeLiquidity: BigInt): BigInt {
   return amountX.times(activeLiquidity).div(reserveX)
 }
 
-export function convertYToL(
-  amountY: BigInt,
-  reserveY: BigInt,
-  activeLiquidity: BigInt,
-): BigInt {
+export function convertYToL(amountY: BigInt, reserveY: BigInt, activeLiquidity: BigInt): BigInt {
   return amountY.times(activeLiquidity).div(reserveY)
 }

@@ -44,6 +44,7 @@ dataSources:
       eventHandlers:
         - event: PairCreated(indexed address,indexed address,address,uint256)
           handler: handlePairCreated
+          receipt: true
 templates:
   - kind: ethereum/contract
     name: AmmalgamPair
@@ -67,8 +68,10 @@ templates:
       eventHandlers:
         - event: Sync(uint256,uint256)
           handler: handleSync
+          receipt: true
         - event: Swap(indexed address,uint256,uint256,uint256,uint256,indexed address)
           handler: handleSwap
+          receipt: true
   - kind: ethereum/contract
     name: ERC4626Deposit
     network: sepolia
@@ -91,10 +94,13 @@ templates:
       eventHandlers:
         - event: Deposit(indexed address,indexed address,uint256,uint256)
           handler: handleDeposit
+          receipt: true
         - event: Withdraw(indexed address,indexed address,indexed address,uint256,uint256)
           handler: handleWithdraw
+          receipt: true
         - event: Transfer(indexed address,indexed address,uint256)
           handler: handleTransfer
+          receipt: true
   - kind: ethereum/contract
     name: ERC20DepositLiquidity
     network: sepolia
@@ -117,10 +123,13 @@ templates:
       eventHandlers:
         - event: Mint(indexed address,indexed address,uint256,uint256)
           handler: handleDepositLiquidity
+          receipt: true
         - event: Burn(indexed address,indexed address,uint256,uint256)
           handler: handleWithdrawLiquidity
+          receipt: true
         - event: Transfer(indexed address,indexed address,uint256)
           handler: handleTransfer
+          receipt: true
   - kind: ethereum/contract
     name: ERC4626Debt
     network: sepolia
@@ -143,10 +152,13 @@ templates:
       eventHandlers:
         - event: Borrow(indexed address,indexed address,uint256,uint256)
           handler: handleBorrow
+          receipt: true
         - event: Repay(indexed address,indexed address,uint256,uint256)
           handler: handleRepay
+          receipt: true
         - event: Transfer(indexed address,indexed address,uint256)
           handler: handleTransfer
+          receipt: true
   - kind: ethereum/contract
     name: ERC20DebtLiquidity
     network: sepolia
@@ -169,7 +181,10 @@ templates:
       eventHandlers:
         - event: BorrowLiquidity(indexed address,indexed address,uint256,uint256)
           handler: handleBorrowLiquidity
+          receipt: true
         - event: RepayLiquidity(indexed address,indexed address,uint256,uint256)
           handler: handleRepayLiquidity
+          receipt: true
         - event: Transfer(indexed address,indexed address,uint256)
           handler: handleTransfer
+          receipt: true

@@ -32,9 +32,9 @@ export function handleWithdrawHelper(
   if (pool) {
     const peripheralAddresses = subgraphConfig.peripheralAddresses
     const tokenType = lendingToken.tokenType
-    
+
     const from = getOrInitUser(event.params.sender)
-    
+
     // When closing position, Peripheral contract burns user `x` or `y` assets
     let user: User
     if (peripheralAddresses.includes(event.params.receiver.toHexString())) {
@@ -42,7 +42,7 @@ export function handleWithdrawHelper(
     } else {
       user = getOrInitUser(event.params.receiver)
     }
-    
+
     const position = getOrInitPosition(user, pool, event)
 
     // Update pool and position deposit data
@@ -66,16 +66,16 @@ export function handleWithdrawHelper(
       position.shares[tokenType].minus(event.params.shares),
       tokenType,
     )
-    
+
     const activeLiquidity = pool.totalAssets[DEPOSIT_L].minus(pool.totalAssets[BORROW_L])
-    
+
     let principal = BIGINT_ZERO
     if (tokenType == DEPOSIT_X) {
       principal = convertXToL(event.params.assets, pool.reserveX, activeLiquidity)
     } else if (tokenType == DEPOSIT_Y) {
       principal = convertYToL(event.params.assets, pool.reserveY, activeLiquidity)
     }
-    
+
     // Update position principal balance in terms of Liquidity
     position.principal = position.principal.minus(principal)
 

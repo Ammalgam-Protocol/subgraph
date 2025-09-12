@@ -16,7 +16,7 @@
     "prettier:format": "prettier --write \"./**/*.{js,ts,json}\""
   },
   "dependencies": {
-    "@graphprotocol/graph-cli": "0.96.0",
+    "@graphprotocol/graph-cli": "0.97.1",
     "@graphprotocol/graph-ts": "0.38.0"
   },
   "devDependencies": {

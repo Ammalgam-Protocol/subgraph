@@ -31,9 +31,9 @@ export function handleWithdrawLiquidityHelper(
   if (pool) {
     const peripheralAddresses = subgraphConfig.peripheralAddresses
     const tokenType = DEPOSIT_L
-    
+
     const from = getOrInitUser(event.params.sender)
-    
+
     // When closing position, Peripheral contract burns user liquidity assets
     let user: User
     if (peripheralAddresses.includes(event.params.to.toHexString())) {
@@ -41,7 +41,7 @@ export function handleWithdrawLiquidityHelper(
     } else {
       user = getOrInitUser(event.params.to)
     }
-    
+
     const position = getOrInitPosition(user, pool, event)
 
     // Update pool and position deposit data

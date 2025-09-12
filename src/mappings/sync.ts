@@ -16,7 +16,7 @@ export function handleSync(event: SyncEvent): void {
     // Update the pool with the new reserves
     pool.reserveX = event.params.reserveXAssets
     pool.reserveY = event.params.reserveYAssets
-    
+
     // Convert reserves to native token units for price calculation
     const reserveX = convertTokenToDecimal(pool.reserveX, tokenX.decimals)
     const reserveY = convertTokenToDecimal(pool.reserveY, tokenY.decimals)
