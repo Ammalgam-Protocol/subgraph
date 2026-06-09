@@ -1,5 +1,4 @@
 export const ZERO_BI = 0n
-export const ONE_BI = 1n
 
 export const DEPOSIT_L = 0
 export const DEPOSIT_X = 1

@@ -1,12 +1,13 @@
 import { BigDecimal } from 'envio'
 import { describe, expect, it } from 'vitest'
-
+import { BORROW_X, DEPOSIT_L, DEPOSIT_X, DEPOSIT_Y } from '../../src/utils/constants'
 import {
   convertTokenToDecimal,
   convertXToL,
   convertYToL,
   exponentToBigDecimal,
   ONE_BD,
+  principalDelta,
   safeDiv,
   ZERO_BD,
 } from '../../src/utils/math'
@@ -53,5 +54,23 @@ describe('math utils', () => {
 
   it('convertYToL returns 0 when reserveY is 0', () => {
     expect(convertYToL(200n, 0n, 500n)).toBe(0n)
+  })
+})
+
+describe('principalDelta', () => {
+  // totalAssets indexed by tokenType; activeLiquidity = totalAssets[DEPOSIT_L] - totalAssets[BORROW_L]
+  const pool = { reserveX: 1000n, reserveY: 2000n, totalAssets: [500n, 0n, 0n, 100n, 0n, 0n] }
+
+  it('converts DEPOSIT_X via reserveX', () => {
+    // convertXToL(100, 1000, 400) = 100 * 400 / 1000 = 40
+    expect(principalDelta(DEPOSIT_X, 100n, pool)).toBe(40n)
+  })
+  it('converts DEPOSIT_Y via reserveY', () => {
+    // convertYToL(100, 2000, 400) = 100 * 400 / 2000 = 20
+    expect(principalDelta(DEPOSIT_Y, 100n, pool)).toBe(20n)
+  })
+  it('returns 0n for non-deposit-X/Y token types (incl. BORROW_X and DEPOSIT_L)', () => {
+    expect(principalDelta(BORROW_X, 100n, pool)).toBe(0n)
+    expect(principalDelta(DEPOSIT_L, 100n, pool)).toBe(0n)
   })
 })

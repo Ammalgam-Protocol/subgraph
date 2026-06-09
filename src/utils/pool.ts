@@ -1,8 +1,5 @@
-import { BigDecimal } from 'envio'
-
 import { DEFAULT_TOKEN_BALANCES, ZERO_BI } from './constants'
-
-const ZERO_BD = new BigDecimal(0)
+import { convertTokenToDecimal, safeDiv, ZERO_BD } from './math'
 
 export function createDefaultPool(
   poolId: string,
@@ -39,5 +36,21 @@ export function createDefaultPool(
     volumeTokenX: ZERO_BD,
     volumeTokenY: ZERO_BD,
     positionCount: 0,
+  }
+}
+
+export function poolPriceFields(
+  tokenX: { decimals: number },
+  tokenY: { decimals: number },
+  reserveXAssets: bigint,
+  reserveYAssets: bigint,
+) {
+  const reserveX = convertTokenToDecimal(reserveXAssets, tokenX.decimals)
+  const reserveY = convertTokenToDecimal(reserveYAssets, tokenY.decimals)
+  return {
+    reserveX: reserveXAssets,
+    reserveY: reserveYAssets,
+    tokenXPrice: safeDiv(reserveX, reserveY),
+    tokenYPrice: safeDiv(reserveY, reserveX),
   }
 }

@@ -1,6 +1,7 @@
+import { BigDecimal } from 'envio'
 import { describe, expect, it } from 'vitest'
 
-import { createDefaultPool } from '../../src/utils/pool'
+import { createDefaultPool, poolPriceFields } from '../../src/utils/pool'
 
 describe('pool utils', () => {
   it('createDefaultPool initializes a zeroed pool', () => {
@@ -28,5 +29,25 @@ describe('pool utils', () => {
     expect(pool.tokenYPrice.toString()).toBe('0')
     expect(pool.volumeTokenX.toString()).toBe('0')
     expect(pool.volumeTokenY.toString()).toBe('0')
+  })
+})
+
+describe('poolPriceFields', () => {
+  it('stores raw reserves and computes decimal-normalized prices', () => {
+    const r = poolPriceFields(
+      { decimals: 18 },
+      { decimals: 18 },
+      1000n * 10n ** 18n,
+      2000n * 10n ** 18n,
+    )
+    expect(r.reserveX).toBe(1000n * 10n ** 18n)
+    expect(r.reserveY).toBe(2000n * 10n ** 18n)
+    expect(r.tokenXPrice.isEqualTo(new BigDecimal('0.5'))).toBe(true)
+    expect(r.tokenYPrice.isEqualTo(new BigDecimal('2'))).toBe(true)
+  })
+  it('returns zero prices when a reserve is zero (safeDiv guard)', () => {
+    const r = poolPriceFields({ decimals: 18 }, { decimals: 18 }, 1000n * 10n ** 18n, 0n)
+    expect(r.tokenXPrice.isEqualTo(new BigDecimal(0))).toBe(true)
+    expect(r.tokenYPrice.isEqualTo(new BigDecimal(0))).toBe(true)
   })
 })

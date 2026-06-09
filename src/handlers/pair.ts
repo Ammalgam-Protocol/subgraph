@@ -1,7 +1,8 @@
 import { indexer } from 'envio'
 
 import { getEventId, scopedId } from '../utils/id'
-import { convertTokenToDecimal, safeDiv } from '../utils/math'
+import { convertTokenToDecimal } from '../utils/math'
+import { poolPriceFields } from '../utils/pool'
 import { createDefaultUser } from '../utils/user'
 
 indexer.onEvent({ contract: 'AmmalgamPair', event: 'Sync' }, async ({ event, context }) => {
@@ -13,15 +14,9 @@ indexer.onEvent({ contract: 'AmmalgamPair', event: 'Sync' }, async ({ event, con
   const tokenY = await context.Token.get(pool.tokenY_id)
   if (!tokenX || !tokenY) return
 
-  const reserveX = convertTokenToDecimal(event.params.reserveXAssets, tokenX.decimals)
-  const reserveY = convertTokenToDecimal(event.params.reserveYAssets, tokenY.decimals)
-
   context.Pool.set({
     ...pool,
-    reserveX: event.params.reserveXAssets,
-    reserveY: event.params.reserveYAssets,
-    tokenXPrice: safeDiv(reserveX, reserveY),
-    tokenYPrice: safeDiv(reserveY, reserveX),
+    ...poolPriceFields(tokenX, tokenY, event.params.reserveXAssets, event.params.reserveYAssets),
     syncCount: pool.syncCount + 1,
   })
 
@@ -166,15 +161,9 @@ indexer.onEvent(
     const tokenY = await context.Token.get(pool.tokenY_id)
     if (!tokenX || !tokenY) return
 
-    const reserveX = convertTokenToDecimal(event.params.reserveXAssets, tokenX.decimals)
-    const reserveY = convertTokenToDecimal(event.params.reserveYAssets, tokenY.decimals)
-
     context.Pool.set({
       ...pool,
-      reserveX: event.params.reserveXAssets,
-      reserveY: event.params.reserveYAssets,
-      tokenXPrice: safeDiv(reserveX, reserveY),
-      tokenYPrice: safeDiv(reserveY, reserveX),
+      ...poolPriceFields(tokenX, tokenY, event.params.reserveXAssets, event.params.reserveYAssets),
       interestAccruedCount: pool.interestAccruedCount + 1,
     })
 

@@ -1,3 +1,5 @@
+import { ADDRESS_ZERO } from './constants'
+
 export interface StaticTokenDefinition {
   address: string
   symbol: string
@@ -50,4 +52,52 @@ export function getChainConfig(chainId: number): ChainConfig {
     throw new Error(`Unsupported chain: ${chainId}`)
   }
   return config
+}
+
+interface ChainSets {
+  peripheral: Set<string>
+  ignoredForTransfer: Set<string>
+  whitelist: Set<string>
+  poolsToSkip: Set<string>
+}
+
+// Immutable, derived once from the static config — preload-safe (never mutated).
+const CHAIN_SETS: Record<number, ChainSets> = Object.fromEntries(
+  Object.entries(CHAIN_CONFIGS).map(([chainId, config]) => [
+    Number(chainId),
+    {
+      peripheral: new Set(config.peripheralAddresses),
+      ignoredForTransfer: new Set([ADDRESS_ZERO, ...config.peripheralAddresses]),
+      whitelist: new Set(config.whitelistTokens),
+      poolsToSkip: new Set(config.poolsToSkip),
+    },
+  ]),
+)
+
+function getChainSets(chainId: number): ChainSets {
+  const sets = CHAIN_SETS[chainId]
+  if (!sets) {
+    throw new Error(`Unsupported chain: ${chainId}`)
+  }
+  return sets
+}
+
+export function isPeripheral(chainId: number, address: string): boolean {
+  return getChainSets(chainId).peripheral.has(address.toLowerCase())
+}
+
+export function isIgnoredForTransfer(chainId: number, address: string): boolean {
+  return getChainSets(chainId).ignoredForTransfer.has(address.toLowerCase())
+}
+
+export function isWhitelisted(chainId: number, address: string): boolean {
+  return getChainSets(chainId).whitelist.has(address.toLowerCase())
+}
+
+export function shouldSkipPool(chainId: number, address: string): boolean {
+  return getChainSets(chainId).poolsToSkip.has(address.toLowerCase())
+}
+
+export function resolveBeneficiary(chainId: number, recipient: string, txFrom: string): string {
+  return isPeripheral(chainId, recipient) ? txFrom : recipient
 }

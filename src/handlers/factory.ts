@@ -1,10 +1,11 @@
+import type { EvmOnEventContext } from 'envio'
 import { indexer } from 'envio'
 
-import { getChainConfig } from '../utils/chains'
+import { isWhitelisted, shouldSkipPool } from '../utils/chains'
 import { BORROW_L, BORROW_X, BORROW_Y, DEPOSIT_L, DEPOSIT_X, DEPOSIT_Y } from '../utils/constants'
 import { scopedId } from '../utils/id'
-import { ZERO_BD } from '../utils/math'
 import { createDefaultPool } from '../utils/pool'
+import { createDefaultToken } from '../utils/token'
 import { fetchTokenMetadata } from '../utils/tokenEffects'
 
 // LendingTokensCreated fires before PairCreated in the createPair tx.
@@ -27,6 +28,14 @@ indexer.contractRegister(
   },
 )
 
+async function getOrCreateToken(context: EvmOnEventContext, chainId: number, address: string) {
+  const id = scopedId(chainId, address)
+  const existing = await context.Token.get(id)
+  if (existing) return existing
+  const metadata = await context.effect(fetchTokenMetadata, `${chainId}:${address}`)
+  return createDefaultToken(id, metadata)
+}
+
 // LendingTokensCreated and PairCreated are emitted in the same createPair tx.
 // Each LendingToken stores its pool_id, so Pool.lendingTokens is resolved as a
 // @derivedFrom reverse lookup (schema.graphql) — no cross-event hand-off or
@@ -45,9 +54,16 @@ indexer.onEvent(
       { address: event.params.borrowY, type: BORROW_Y },
     ]
 
-    for (const { address, type: tokenType } of tokenAddresses) {
-      // effect input uses the raw on-chain address; entity id/pool_id are scoped.
-      const metadata = await context.effect(fetchTokenMetadata, `${event.chainId}:${address}`)
+    // Independent metadata reads — fetch in parallel (handlers run twice; preload warms the cache).
+    const resolved = await Promise.all(
+      tokenAddresses.map(async ({ address, type }) => ({
+        address,
+        type,
+        metadata: await context.effect(fetchTokenMetadata, `${event.chainId}:${address}`),
+      })),
+    )
+
+    for (const { address, type: tokenType, metadata } of resolved) {
       context.LendingToken.set({
         id: scopedId(event.chainId, address),
         symbol: metadata.symbol,
@@ -63,51 +79,25 @@ indexer.onEvent(
 indexer.onEvent(
   { contract: 'AmmalgamFactory', event: 'PairCreated' },
   async ({ event, context }) => {
-    const config = getChainConfig(event.chainId)
     const poolAddress = event.params.pair
-    if (config.poolsToSkip.includes(poolAddress.toLowerCase())) return
+    if (shouldSkipPool(event.chainId, poolAddress)) return
     const poolId = scopedId(event.chainId, poolAddress)
 
     const tokenXAddress = event.params.tokenX
-    const tokenXId = scopedId(event.chainId, tokenXAddress)
-    let tokenX = await context.Token.get(tokenXId)
-    if (!tokenX) {
-      const metadata = await context.effect(fetchTokenMetadata, `${event.chainId}:${tokenXAddress}`)
-      tokenX = {
-        id: tokenXId,
-        symbol: metadata.symbol,
-        name: metadata.name,
-        decimals: metadata.decimals,
-        poolCount: 0,
-        txCount: 0,
-        volume: ZERO_BD,
-        whitelistPoolIds: [],
-      }
-    }
-
     const tokenYAddress = event.params.tokenY
-    const tokenYId = scopedId(event.chainId, tokenYAddress)
-    let tokenY = await context.Token.get(tokenYId)
-    if (!tokenY) {
-      const metadata = await context.effect(fetchTokenMetadata, `${event.chainId}:${tokenYAddress}`)
-      tokenY = {
-        id: tokenYId,
-        symbol: metadata.symbol,
-        name: metadata.name,
-        decimals: metadata.decimals,
-        poolCount: 0,
-        txCount: 0,
-        volume: ZERO_BD,
-        whitelistPoolIds: [],
-      }
-    }
+
+    // Independent token reads — fetch/create in parallel.
+    const [tokenX, tokenY] = await Promise.all([
+      getOrCreateToken(context, event.chainId, tokenXAddress),
+      getOrCreateToken(context, event.chainId, tokenYAddress),
+    ])
 
     const tokenXWhitelist = [...tokenX.whitelistPoolIds]
     const tokenYWhitelist = [...tokenY.whitelistPoolIds]
     // whitelist config holds raw lowercased addresses; compare against the raw
     // token address, not the (chain-scoped) entity id.
-    if (config.whitelistTokens.includes(tokenXAddress.toLowerCase())) tokenYWhitelist.push(poolId)
-    if (config.whitelistTokens.includes(tokenYAddress.toLowerCase())) tokenXWhitelist.push(poolId)
+    if (isWhitelisted(event.chainId, tokenXAddress)) tokenYWhitelist.push(poolId)
+    if (isWhitelisted(event.chainId, tokenYAddress)) tokenXWhitelist.push(poolId)
 
     context.Token.set({
       ...tokenX,
@@ -122,8 +112,8 @@ indexer.onEvent(
 
     const pool = createDefaultPool(
       poolId,
-      tokenXId,
-      tokenYId,
+      scopedId(event.chainId, tokenXAddress),
+      scopedId(event.chainId, tokenYAddress),
       `${tokenX.symbol}-${tokenY.symbol}`,
       BigInt(event.block.timestamp),
       BigInt(event.block.number),
