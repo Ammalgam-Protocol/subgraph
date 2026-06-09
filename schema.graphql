@@ -1,663 +1,259 @@
-type Token @entity(immutable: false) {
-  " Token address "
+type Token {
   id: ID!
-
-  " ERC20 metadata fetched from the smart contract "
   symbol: String!
   name: String!
   decimals: Int!
-
-  " Number of pools containing this token "
   poolCount: Int!
-
-  " Transactions across all pools "
   txCount: Int!
-
-  " Token specific volume "
   volume: BigDecimal!
-
-  " Pools token is in that are white listed for USD pricing "
-  whitelistPools: [Pool!]!
+  whitelistPoolIds: [String!]!
 }
 
-type LendingToken @entity(immutable: true) {
-  " Lending token address "
+type LendingToken {
   id: ID!
-
-  " ERC20 metadata fetched from the smart contract "
   symbol: String!
   name: String!
   decimals: Int!
-
-  " The pool for which the lending token belongs to "
-  pool: Pool!
-
-  " Token type. e.g. DEPOSIT_L, BORROW_L, etc. "
+  pool: Pool! @index
   tokenType: Int!
 }
 
-type Pool @entity(immutable: false) {
-  " Pool address "
+type Pool {
   id: ID!
-
-  " Underlying tokens "
   tokenX: Token!
   tokenY: Token!
-
-  " Pool name: { tokenX.symbol }-{ tokenY.symbol } "
   name: String!
-
-  " Lending tokens - Deposit & Borrow `X`, `Y` & `L` "
-  lendingTokens: [LendingToken!]
-
-  " Underlying token reserves in native units "
   reserveX: BigInt!
   reserveY: BigInt!
-
-  " Price in terms of the asset pair "
   tokenXPrice: BigDecimal!
   tokenYPrice: BigDecimal!
-
-  " Total number of assets for each lending token in the pool "
   totalAssets: [BigInt!]!
-
-  " Total number of shares for each lending token in the pool "
   totalShares: [BigInt!]!
-
-  " Creation timestamp "
   createdAtTimestamp: BigInt!
-
-  " Creation block number "
   createdAtBlockNumber: BigInt!
-
-  ##### Quantitative Data #####
-
-  " All time number of transactions "
   txCount: Int!
-
-  " Total number of deposits "
   depositCount: Int!
-
-  " Total number of withdrawals "
   withdrawCount: Int!
-
-  " Total number of borrows "
   borrowCount: Int!
-
-  " Total number of repayments "
   repayCount: Int!
-
-  " Total number of transfers "
   transferCount: Int!
-
-  " Number of swaps "
   swapCount: Int!
-
-  " Number of syncs "
   syncCount: Int!
-
-  " All time tokenX swapped "
+  liquidateCount: Int!
+  interestAccruedCount: Int!
+  burnBadDebtCount: Int!
   volumeTokenX: BigDecimal!
-
-  " All time tokenY swapped "
   volumeTokenY: BigDecimal!
-
-  ##### User Position Data #####
-
-  " All positions in this pool "
-  positions: [Position!]! @derivedFrom(field: "pool")
-
-  " Number of positions in this pool "
   positionCount: Int!
-
-  ##### Events #####
-
-  " All deposits made to this pool "
+  lendingTokens: [LendingToken!]! @derivedFrom(field: "pool")
+  positions: [Position!]! @derivedFrom(field: "pool")
   deposits: [Deposit!]! @derivedFrom(field: "pool")
-
-  " All withdrawals made from this pool "
   withdraws: [Withdraw!]! @derivedFrom(field: "pool")
-
-  " All borrows from this pool "
   borrows: [Borrow!]! @derivedFrom(field: "pool")
-
-  " All repayments to this pool "
   repays: [Repay!]! @derivedFrom(field: "pool")
-
-  " All transfers made in this pool "
   transfers: [Transfer!]! @derivedFrom(field: "pool")
-
-  " All swaps made in this pool "
   swaps: [Swap!]! @derivedFrom(field: "pool")
-
-  " All syncs happened in this pool "
   syncs: [Sync!]! @derivedFrom(field: "pool")
+  liquidates: [Liquidate!]! @derivedFrom(field: "pool")
+  interestAccruals: [InterestAccrued!]! @derivedFrom(field: "pool")
+  burnBadDebts: [BurnBadDebt!]! @derivedFrom(field: "pool")
 }
 
-##############################
-##### User-Level Data #####
-##############################
-
-type User @entity(immutable: false) @regularPolling {
-  " { User wallet address } "
+type User {
   id: ID!
-
-  " Number of positions this user has "
   positionCount: Int!
-
-  " All positions that belong to this user "
   positions: [Position!]! @derivedFrom(field: "user")
-
-  " Number of swaps "
   swapCount: Int!
-
-  " All swap events "
+  liquidationCount: Int!
   swaps: [Swap!]! @derivedFrom(field: "from")
-
-  " Number of deposits "
+  liquidations: [Liquidate!]! @derivedFrom(field: "borrower")
   depositCount: Int!
-
-  " All deposit events "
   deposits: [Deposit!]! @derivedFrom(field: "user")
-
-  " Number of withdrawals "
   withdrawCount: Int!
-
-  " All withdraw events "
   withdraws: [Withdraw!]! @derivedFrom(field: "user")
-
-  " Number of borrows "
   borrowCount: Int!
-
-  " All borrow events "
   borrows: [Borrow!]! @derivedFrom(field: "user")
-
-  " Number of repays "
   repayCount: Int!
-
-  " All repay events "
   repays: [Repay!]! @derivedFrom(field: "user")
-
-  " Number of times this user has transferred "
   transferredCount: Int!
-
-  " All transfer events where this user was the sender "
   transfers: [Transfer!]! @derivedFrom(field: "sender")
-
-  " Number of times this user has received a transfer "
   receivedCount: Int!
-
-  " All transfer events where this user was the receiver "
   receives: [Transfer!]! @derivedFrom(field: "receiver")
 }
 
-# User position is defined to keep track of all the activity of a user in a pool.
-type Position @entity(immutable: false) @regularPolling {
-  " { User address }-{ Pool address } "
+type Position {
   id: ID!
-
-  " User that owns this position "
   user: User!
-
-  " The pool in which this position was opened "
   pool: Pool!
-
-  " The hash of the transaction that opened this position "
-  hash: Bytes!
-
-  " Block number of when the position was opened "
+  hash: String!
   blockNumber: BigInt!
-
-  " Timestamp when the position was opened "
   timestamp: BigInt!
-
-  " Token balances in this position, in native amounts "
   assets: [BigInt!]!
-
-  " Token balances in this position, in respective share amounts "
   shares: [BigInt!]!
-
-  " The token balances of this position in liquidity amount "
   principal: BigInt!
-
-  " Number of deposits related to this position "
   depositCount: Int!
-
-  " All deposit events of this position "
   deposits: [Deposit!]! @derivedFrom(field: "position")
-
-  " Number of withdrawals related to this position "
   withdrawCount: Int!
-
-  " All withdraw events of this position "
   withdraws: [Withdraw!]! @derivedFrom(field: "position")
-
-  " Number of borrows related to this position "
   borrowCount: Int!
-
-  " All borrow events of this position "
   borrows: [Borrow!]! @derivedFrom(field: "position")
-
-  " Number of repays related to this position "
   repayCount: Int!
-
-  " All repay events of this position "
   repays: [Repay!]! @derivedFrom(field: "position")
-
-  " Number of times this position has transferred "
   transferredCount: Int!
-
-  " All transfer events where this position was the sender "
   transfers: [Transfer!]! @derivedFrom(field: "senderPosition")
-
-  " Number of times this position has received a transfer "
   receivedCount: Int!
-
-  " All transfer events where this position was the receiver "
   receives: [Transfer!]! @derivedFrom(field: "receiverPosition")
 }
 
-############################
-##### Event-Level Data #####
-############################
-
-"""
-An event is any user action that occurs in a protocol. Generally, they are Ethereum events
-emitted by a function in the smart contracts, stored in transaction receipts as event logs.
-"""
-interface Event {
-  " { Transaction hash }-{ Log index } "
+type Deposit {
   id: ID!
-
-  " Transaction hash of the transaction that emitted this event "
-  hash: Bytes!
-
-  " Nonce of the transaction that emitted this event "
-  nonce: BigInt!
-
-  " Event log index. For transactions that don't emit event, create arbitrary index starting from 0 "
+  hash: String!
   logIndex: Int!
-
-  " Price of gas in this transaction "
-  gasPrice: BigInt
-
-  " Gas used in this transaction. (Optional because not every chain will support this) "
-  gasUsed: BigInt
-
-  " Gas limit of this transaction. e.g. the amount of gas the sender will pay "
-  gasLimit: BigInt
-
-  " Block number of this event "
   blockNumber: BigInt!
-
-  " Timestamp of this event "
   timestamp: BigInt!
-
-  " The pool for which events are emitted "
-  pool: Pool!
-
-  " Lending Token for which the events are emitted "
-  asset: LendingToken!
-
-  " Amount of token deposited in native units "
-  amount: BigInt!
-}
-
-type Deposit implements Event @entity(immutable: true) @transaction {
-  " { Transaction hash }-{ Log index } "
-  id: ID!
-
-  " Transaction hash of the transaction that emitted this event "
-  hash: Bytes!
-
-  " Nonce of the transaction that emitted this event "
-  nonce: BigInt!
-
-  " Event log index. For transactions that don't emit event, create arbitrary index starting from 0 "
-  logIndex: Int!
-
-  " Price of gas in this transaction "
-  gasPrice: BigInt
-
-  " Gas used in this transaction. (Optional because not every chain will support this) "
-  gasUsed: BigInt
-
-  " Gas limit of this transaction. e.g. the amount of gas the sender will pay "
-  gasLimit: BigInt
-
-  " Block number of this event "
-  blockNumber: BigInt!
-
-  " Timestamp of this event "
-  timestamp: BigInt!
-
-  "User where the funds are deposited from "
   user: User!
-
-  " User that executed the deposit "
   from: User!
-
-  " The pool where user has deposited the funds "
   pool: Pool!
-
-  " The user position changed by this event "
   position: Position!
-
-  " Lending Token for which the deposit is emitted "
   asset: LendingToken!
-
-  " Amount of token deposited in native units "
   amount: BigInt!
-
-  ##### Add Ons #####
-
   shares: BigInt
 }
 
-type Withdraw implements Event @entity(immutable: true) @transaction {
-  " { Transaction hash }-{ Log index } "
+type Withdraw {
   id: ID!
-
-  " Transaction hash of the transaction that emitted this event "
-  hash: Bytes!
-
-  " Nonce of the transaction that emitted this event "
-  nonce: BigInt!
-
-  " Event log index. For transactions that don't emit event, create arbitrary index starting from 0 "
+  hash: String!
   logIndex: Int!
-
-  " Price of gas in this transaction "
-  gasPrice: BigInt
-
-  " Gas used in this transaction. (Optional because not every chain will support this) "
-  gasUsed: BigInt
-
-  " Gas limit of this transaction. e.g. the amount of gas the sender will pay "
-  gasLimit: BigInt
-
-  " Block number of this event "
   blockNumber: BigInt!
-
-  " Timestamp of this event "
   timestamp: BigInt!
-
-  " User that receives the underlying withdrawn amount "
   user: User!
-
-  " User that executed the withdraw transaction "
   from: User!
-
-  " The pool from which user has withdrawn the funds "
   pool: Pool!
-
-  " The user position changed by this event "
   position: Position!
-
-  " Lending Token for which the withdraw is emitted "
   asset: LendingToken!
-
-  " Amount of token withdrawn in native units "
   amount: BigInt!
-
-  ##### Add Ons #####
-
   shares: BigInt
 }
 
-type Borrow implements Event @entity(immutable: true) @transaction {
-  " { Transaction hash }-{ Log index } "
+type Borrow {
   id: ID!
-
-  " Transaction hash of the transaction that emitted this event "
-  hash: Bytes!
-
-  " Nonce of the transaction that emitted this event "
-  nonce: BigInt!
-
-  " Event log index. For transactions that don't emit event, create arbitrary index starting from 0 "
+  hash: String!
   logIndex: Int!
-
-  " Price of gas in this transaction "
-  gasPrice: BigInt
-
-  " Gas used in this transaction. (Optional because not every chain will support this) "
-  gasUsed: BigInt
-
-  " Gas limit of this transaction. e.g. the amount of gas the sender will pay "
-  gasLimit: BigInt
-
-  " Block number of this event "
   blockNumber: BigInt!
-
-  " Timestamp of this event "
   timestamp: BigInt!
-
-  " User that receives the funds from the new debt "
   user: User!
-
-  " User that executed the borrow transaction "
   from: User!
-
-  " The pool from which user has borrowed the funds "
   pool: Pool!
-
-  " The user position changed by this event "
   position: Position!
-
-  " Lending Token for which the borrow is emitted "
   asset: LendingToken!
-
-  " Amount of token borrowed in native units "
   amount: BigInt!
-
-  #### Addons ####
-
   shares: BigInt!
 }
 
-type Repay implements Event @entity(immutable: true) @transaction {
-  " { Transaction hash }-{ Log index } "
+type Repay {
   id: ID!
-
-  " Transaction hash of the transaction that emitted this event "
-  hash: Bytes!
-
-  " Nonce of the transaction that emitted this event "
-  nonce: BigInt!
-
-  " Event log index. For transactions that don't emit event, create arbitrary index starting from 0 "
+  hash: String!
   logIndex: Int!
-
-  " Price of gas in this transaction "
-  gasPrice: BigInt
-
-  " Gas used in this transaction. (Optional because not every chain will support this) "
-  gasUsed: BigInt
-
-  " Gas limit of this transaction. e.g. the amount of gas the sender will pay "
-  gasLimit: BigInt
-
-  " Block number of this event "
   blockNumber: BigInt!
-
-  " Timestamp of this event "
   timestamp: BigInt!
-
-  " User who is repaying the debt "
   user: User!
-
-  " User that executed the repay transaction "
   from: User!
-
-  " The pool for which user has repaid the funds "
   pool: Pool!
-
-  " The user position changed by this event "
   position: Position!
-
-  " Lending Token for which the repay is emitted "
   asset: LendingToken!
-
-  " Amount of token repaid/burned in native units "
   amount: BigInt!
-
-  #### Addons ####
-
   shares: BigInt!
 }
 
-# This entity is solely for transfers outside of normal protocol interaction
-# e.g. transferring depositL (collateral) directly, not a deposit.
-# Transfers associated with other transactions in this schema should live there and not here.
-# Note that only one transfer event should be created per transfer.
-type Transfer implements Event @entity(immutable: true) @transaction {
-  " { Transaction hash }-{ Log index } "
+type Transfer {
   id: ID!
-
-  " Transaction hash of the transaction that emitted this event "
-  hash: Bytes!
-
-  " Nonce of the transaction that emitted this event "
-  nonce: BigInt!
-
-  " Event log index. For transactions that don't emit event, create arbitrary index starting from 0 "
+  hash: String!
   logIndex: Int!
-
-  " Price of gas in this transaction "
-  gasPrice: BigInt
-
-  " Gas used in this transaction. (Optional because not every chain will support this) "
-  gasUsed: BigInt
-
-  " Gas limit of this transaction. e.g. the amount of gas the sender will pay "
-  gasLimit: BigInt
-
-  " Block number of this event "
   blockNumber: BigInt!
-
-  " Timestamp of this event "
   timestamp: BigInt!
-
-  " The user that sent the tokens "
   sender: User!
-
-  " The user that received the tokens "
   receiver: User!
-
-  " The pool for which transfer token belongs to "
   pool: Pool!
-
-  " The sender user position changed by this event "
   senderPosition: Position!
-
-  " The receiver user position changed by this event "
   receiverPosition: Position!
-
-  " Lending Token for which the transfer is emitted "
   asset: LendingToken!
-
-  " Amount of token transferred in native units "
   amount: BigInt!
-
-  #### Addons ####
-
   shares: BigInt!
 }
 
-type Swap @entity(immutable: true) @transaction {
-  " { Transaction hash }-{ Log index } "
+type Swap {
   id: ID!
-
-  " Transaction hash of the transaction that emitted this event "
-  hash: Bytes!
-
-  " Nonce of the transaction that emitted this event "
-  nonce: BigInt!
-
-  " Event log index. For transactions that don't emit event, create arbitrary index starting from 0 "
+  hash: String!
   logIndex: Int!
-
-  " Price of gas in this transaction "
-  gasPrice: BigInt
-
-  " Gas used in this transaction. (Optional because not every chain will support this) "
-  gasUsed: BigInt
-
-  " Gas limit of this transaction. e.g. the amount of gas the sender will pay "
-  gasLimit: BigInt
-
-  " Block number of this event "
   blockNumber: BigInt!
-
-  " Timestamp of this event "
   timestamp: BigInt!
-
-  " The pool for where the user has swapped the tokens "
   pool: Pool!
-
-  " Underlying tokenX in the pool "
   tokenX: Token!
-
-  " Underlying tokenY in the pool "
   tokenY: Token!
-
-  " sender of the swap "
   sender: User!
-
-  " the EOA that initiated the txn "
   from: User!
-
-  " recipient of the swap "
   to: User!
-
-  " amount of tokenX transferred in native units "
   amountXIn: BigInt!
-
-  " amount of tokenY transferred in native units "
   amountYIn: BigInt!
-
-  " amount of tokenX transferred out in native units "
   amountXOut: BigInt!
-
-  " amount of tokenY transferred out in native units "
   amountYOut: BigInt!
 }
 
-type Sync @entity(immutable: true) @transaction {
-  " { Transaction hash }-{ Log index } "
+type Sync {
   id: ID!
-
-  " Transaction hash of the transaction that emitted this event "
-  hash: Bytes!
-
-  " Nonce of the transaction that emitted this event "
-  nonce: BigInt!
-
-  " Event log index. For transactions that don't emit event, create arbitrary index starting from 0 "
+  hash: String!
   logIndex: Int!
-
-  " Price of gas in this transaction "
-  gasPrice: BigInt
-
-  " Gas used in this transaction. (Optional because not every chain will support this) "
-  gasUsed: BigInt
-
-  " Gas limit of this transaction. e.g. the amount of gas the sender will pay "
-  gasLimit: BigInt
-
-  " Block number of this event "
   blockNumber: BigInt!
-
-  " Timestamp of this event "
   timestamp: BigInt!
-
-  " The pool for where the user has swapped the tokens "
   pool: Pool!
-
-  " Latest tokenX reserve in the pool in native units "
   reserveX: BigInt!
-
-  " Latest tokenY reserve in the pool in native units "
   reserveY: BigInt!
+}
+
+type Liquidate {
+  id: ID!
+  hash: String!
+  logIndex: Int!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+  pool: Pool!
+  borrower: User!
+  liquidator: User!
+  seizedLAssets: BigInt!
+  seizedXAssets: BigInt!
+  seizedYAssets: BigInt!
+  repayXAssets: BigInt!
+  repayYAssets: BigInt!
+  actualRepaidXAssets: BigInt!
+  actualRepaidYAssets: BigInt!
+  liquidationType: BigInt!
+}
+
+type InterestAccrued {
+  id: ID!
+  hash: String!
+  logIndex: Int!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+  pool: Pool!
+  reserveX: BigInt!
+  reserveY: BigInt!
+  depositXAssets: BigInt!
+  depositYAssets: BigInt!
+  borrowLAssets: BigInt!
+  borrowXAssets: BigInt!
+  borrowYAssets: BigInt!
+}
+
+type BurnBadDebt {
+  id: ID!
+  hash: String!
+  logIndex: Int!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+  pool: Pool!
+  borrower: User!
+  tokenType: BigInt!
+  badDebtAssets: BigInt!
+  badDebtShares: BigInt!
 }

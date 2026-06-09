@@ -1,45 +1,34 @@
-# Graph CLI generated artifacts
-build/
+# Envio generated
 generated/
-src/types/
+.envio/
 
-# Dependency directories
+# Dependencies
 node_modules/
-jspm_packages/
 
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Optional npm cache directory
-.npm
-
-# Optional eslint cache
-.eslintcache
-
-# dotenv environment variables file
+# Environment
 .env
+.env.local
 
 # Testing
-coverage
-coverage.json
+coverage/
 
-# Typechain
-typechain
-typechain-types
-
-# Hardhat files
-cache
+# Build
+build/
+dist/
 
 # IDE
-.idea
-.vscode
+.idea/
+.vscode/
 
 # MacOS
 .DS_Store
-._.DS_Store
 **/.DS_Store
-**/._.DS_Store
+
+# Logs
+*.log
+
+# gstack
+.gstack/
+
+# Envio runtime data
+data/

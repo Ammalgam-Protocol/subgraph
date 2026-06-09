@@ -1,0 +1,15 @@
+pre-commit:
+  parallel: true
+  jobs:
+    - name: lint-and-format
+      run: pnpm dlx @biomejs/biome check --staged --no-errors-on-unmatched
+
+pre-push:
+  parallel: false
+  jobs:
+    - name: codegen
+      run: pnpm codegen
+    - name: typecheck
+      run: pnpm tsc --noEmit
+    - name: test
+      run: pnpm test:coverage

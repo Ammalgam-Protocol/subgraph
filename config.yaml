@@ -1,0 +1,64 @@
+# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+name: ammalgam-indexer
+description: Ammalgam Protocol Indexer
+
+field_selection:
+  transaction_fields:
+    - hash
+    - from
+
+contracts:
+  - name: AmmalgamFactory
+    handler: src/handlers/factory.ts
+    events:
+      - event: "LendingTokensCreated(address indexed pair, address depositL, address depositX, address depositY, address borrowL, address borrowX, address borrowY)"
+      - event: "PairCreated(address indexed tokenX, address indexed tokenY, address pair, uint256 allPairsLength)"
+
+  - name: AmmalgamPair
+    handler: src/handlers/pair.ts
+    events:
+      - event: "Sync(uint256 reserveXAssets, uint256 reserveYAssets)"
+      - event: "Swap(address indexed sender, uint256 amountXIn, uint256 amountYIn, uint256 amountXOut, uint256 amountYOut, address indexed to)"
+      - event: "Liquidate(address indexed borrower, address indexed to, uint256 seizedLAssets, uint256 seizedXAssets, uint256 seizedYAssets, uint256 repayXAssets, uint256 repayYAssets, uint256 actualRepaidXAssets, uint256 actualRepaidYAssets, uint256 liquidationType)"
+      - event: "InterestAccrued(uint256 reserveXAssets, uint256 reserveYAssets, uint112 depositXAssets, uint112 depositYAssets, uint112 borrowLAssets, uint112 borrowXAssets, uint112 borrowYAssets)"
+      - event: "BurnBadDebt(address indexed borrower, uint256 indexed tokenType, uint256 badDebtAssets, uint256 badDebtShares)"
+
+  - name: ERC4626Deposit
+    handler: src/handlers/deposit.ts
+    events:
+      - event: "Deposit(address indexed sender, address indexed owner, uint256 assets, uint256 shares)"
+      - event: "Withdraw(address indexed sender, address indexed receiver, address indexed owner, uint256 assets, uint256 shares)"
+      - event: "Transfer(address indexed from, address indexed to, uint256 value)"
+
+  - name: ERC20DepositLiquidity
+    handler: src/handlers/depositLiquidity.ts
+    events:
+      - event: "Mint(address indexed sender, address indexed to, uint256 assets, uint256 shares)"
+      - event: "Burn(address indexed sender, address indexed to, uint256 assets, uint256 shares)"
+      - event: "Transfer(address indexed from, address indexed to, uint256 value)"
+
+  - name: ERC4626Debt
+    handler: src/handlers/borrow.ts
+    events:
+      - event: "Borrow(address indexed sender, address indexed to, uint256 assets, uint256 shares)"
+      - event: "Repay(address indexed sender, address indexed onBehalfOf, uint256 assets, uint256 shares)"
+      - event: "Transfer(address indexed from, address indexed to, uint256 value)"
+
+  - name: ERC20DebtLiquidity
+    handler: src/handlers/borrowLiquidity.ts
+    events:
+      - event: "BorrowLiquidity(address indexed sender, address indexed to, uint256 assets, uint256 shares)"
+      - event: "RepayLiquidity(address indexed sender, address indexed onBehalfOf, uint256 assets, uint256 shares)"
+      - event: "Transfer(address indexed from, address indexed to, uint256 value)"
+
+chains:
+  - id: 11155111  # Sepolia
+    start_block: 10249390
+    contracts:
+      - name: AmmalgamFactory
+        address: "0x63EE90aaD8cf482e2618C9df6280353A56440079"
+      - name: AmmalgamPair
+      - name: ERC4626Deposit
+      - name: ERC20DepositLiquidity
+      - name: ERC4626Debt
+      - name: ERC20DebtLiquidity
