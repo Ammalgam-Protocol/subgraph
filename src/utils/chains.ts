@@ -21,23 +21,16 @@ export interface ChainConfig {
 const CHAIN_CONFIGS: Record<number, ChainConfig> = {
   11155111: {
     // Sepolia
-    peripheralAddresses: [
-      '0x737da85f70db0d93b9d2c189aa7fba0841b8463b',
-      '0x5f75c9485f2f47ab6f6887a2f31cdf5ea0bf282d',
-      '0x2f2f434b4616b942c9e5b2526b7791e009f18b19',
-      '0xfe460940ffb3339fed01efacfbb39417be70e2e8',
-    ],
+    peripheralAddresses: ['0xaffc6c525660480da9656165490aa9c27e5ea9b3'],
     wrappedNativeAddress: '0xfff9976782d46cc05630d1f6ebab18b2324d6b14',
     stablecoinAddresses: [
-      '0x260821c946590213521042ecb215f8ce6f38757d', // DAI
-      '0xba27581cf84ee43ec6a354f56ea2e424223d122f', // USDC
-      '0x48b717744ac9162766e3c12d81851bfe178e28de', // USDT
+      '0x7a2fc218a5a43b88a622ad9b67a59d3a73c52aad', // USDC
+      '0x155b2f181512f0def9d8d2b5630bc735db926fef', // USDT
     ],
     whitelistTokens: [
       '0x0000000000000000000000000000000000000000', // Native ETH
-      '0x260821c946590213521042ecb215f8ce6f38757d', // DAI
-      '0xba27581cf84ee43ec6a354f56ea2e424223d122f', // USDC
-      '0x48b717744ac9162766e3c12d81851bfe178e28de', // USDT
+      '0x7a2fc218a5a43b88a622ad9b67a59d3a73c52aad', // USDC
+      '0x155b2f181512f0def9d8d2b5630bc735db926fef', // USDT
       '0xfff9976782d46cc05630d1f6ebab18b2324d6b14', // WETH
     ],
     tokenOverrides: [],

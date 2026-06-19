@@ -1,10 +1,10 @@
 FROM node:24.3.0-slim
 
-# --no-install-recommends keeps the image smaller by avoiding extra dependencies.
-# rm -rf /var/lib/apt/lists/* cleans up cached package lists to reduce image size.
 # psql is needed for dumping and restoring the initial effects cache.
+# ca-certificates: the -slim base ships no CA bundle, so the native hypersync-client
+# Rust addon fails TLS to *.hypersync.xyz with "UnknownIssuer" (Node bundles its own, this addon doesn't).
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends postgresql-client && \
+    apt-get install -y --no-install-recommends ca-certificates postgresql-client && \
     rm -rf /var/lib/apt/lists/*
 
 ENV PNPM_HOME="/pnpm"
@@ -20,9 +20,6 @@ RUN pnpm install --frozen-lockfile
 
 COPY ./config.yaml ./config.yaml
 COPY ./schema.graphql ./schema.graphql
-
-# Remove the line if you inlined all event ABIs in the config.yaml
-COPY ./abis ./abis
 
 RUN pnpm envio codegen
 

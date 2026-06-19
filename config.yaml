@@ -53,10 +53,10 @@ contracts:
 
 chains:
   - id: 11155111  # Sepolia
-    start_block: 10249390
+    start_block: 11068176
     contracts:
       - name: AmmalgamFactory
-        address: "0x63EE90aaD8cf482e2618C9df6280353A56440079"
+        address: "0x5a6A9C26587F80eF235903e6de814cB35CF26307"
       - name: AmmalgamPair
       - name: ERC4626Deposit
       - name: ERC20DepositLiquidity
