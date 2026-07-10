@@ -23,6 +23,7 @@ describe('pool utils', () => {
     expect(pool.swapCount).toBe(0)
     expect(pool.syncCount).toBe(0)
     expect(pool.positionCount).toBe(0)
+    expect(pool.externalLiquidity).toBe(0n)
     expect(pool.reserveX).toBe(0n)
     expect(pool.reserveY).toBe(0n)
     expect(pool.tokenXPrice.toString()).toBe('0')
@@ -42,8 +43,8 @@ describe('poolPriceFields', () => {
     )
     expect(r.reserveX).toBe(1000n * 10n ** 18n)
     expect(r.reserveY).toBe(2000n * 10n ** 18n)
-    expect(r.tokenXPrice.isEqualTo(new BigDecimal('0.5'))).toBe(true)
-    expect(r.tokenYPrice.isEqualTo(new BigDecimal('2'))).toBe(true)
+    expect(r.tokenXPrice.isEqualTo(new BigDecimal('2'))).toBe(true)
+    expect(r.tokenYPrice.isEqualTo(new BigDecimal('0.5'))).toBe(true)
   })
   it('returns zero prices when a reserve is zero (safeDiv guard)', () => {
     const r = poolPriceFields({ decimals: 18 }, { decimals: 18 }, 1000n * 10n ** 18n, 0n)

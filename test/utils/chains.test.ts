@@ -1,12 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  getChainConfig,
-  isIgnoredForTransfer,
-  isPeripheral,
-  isWhitelisted,
-  resolveBeneficiary,
-  shouldSkipPool,
-} from '../../src/utils/chains'
+import { getChainConfig, isWhitelisted, shouldSkipPool } from '../../src/utils/chains'
 
 describe('chains utils', () => {
   it('getChainConfig returns Sepolia config', () => {
@@ -15,27 +8,22 @@ describe('chains utils', () => {
     expect(config.stablecoinAddresses.length).toBeGreaterThan(0)
   })
 
+  it('getChainConfig returns Mainnet config', () => {
+    const config = getChainConfig(1)
+    expect(config.nativeTokenDetails.symbol).toBe('ETH')
+    expect(config.stablecoinAddresses.length).toBeGreaterThan(0)
+  })
+
   it('getChainConfig throws for an unsupported chain', () => {
-    expect(() => getChainConfig(1)).toThrow('Unsupported chain: 1')
+    expect(() => getChainConfig(999999)).toThrow('Unsupported chain: 999999')
   })
 })
 
 const CHAIN = 11155111
-const PERIPHERAL = '0xaffc6c525660480da9656165490aa9c27e5ea9b3'
 const WETH = '0xfff9976782d46cc05630d1f6ebab18b2324d6b14'
 const RANDOM = '0x1111111111111111111111111111111111111111'
-const ZERO = '0x0000000000000000000000000000000000000000'
 
 describe('chain lookups', () => {
-  it('isPeripheral matches case-insensitively', () => {
-    expect(isPeripheral(CHAIN, PERIPHERAL.toUpperCase())).toBe(true)
-    expect(isPeripheral(CHAIN, RANDOM)).toBe(false)
-  })
-  it('isIgnoredForTransfer covers ADDRESS_ZERO and peripheral', () => {
-    expect(isIgnoredForTransfer(CHAIN, ZERO)).toBe(true)
-    expect(isIgnoredForTransfer(CHAIN, PERIPHERAL)).toBe(true)
-    expect(isIgnoredForTransfer(CHAIN, RANDOM)).toBe(false)
-  })
   it('isWhitelisted matches whitelist tokens', () => {
     expect(isWhitelisted(CHAIN, WETH)).toBe(true)
     expect(isWhitelisted(CHAIN, RANDOM)).toBe(false)
@@ -43,11 +31,7 @@ describe('chain lookups', () => {
   it('shouldSkipPool is false when poolsToSkip is empty', () => {
     expect(shouldSkipPool(CHAIN, RANDOM)).toBe(false)
   })
-  it('resolveBeneficiary rewrites peripheral recipients to txFrom', () => {
-    expect(resolveBeneficiary(CHAIN, PERIPHERAL, RANDOM)).toBe(RANDOM)
-    expect(resolveBeneficiary(CHAIN, WETH, RANDOM)).toBe(WETH)
-  })
   it('throws on unsupported chain', () => {
-    expect(() => isPeripheral(999, RANDOM)).toThrow('Unsupported chain: 999')
+    expect(() => isWhitelisted(999, RANDOM)).toThrow('Unsupported chain: 999')
   })
 })

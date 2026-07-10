@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=./node_modules/envio/evm.schema.json
-name: ammalgam-indexer-sepolia
-description: Ammalgam Protocol Indexer (Sepolia)
+name: ammalgam-indexer-mainnet
+description: Ammalgam Protocol Indexer (Mainnet)
 address_format: lowercase
 
 field_selection:
@@ -54,11 +54,11 @@ contracts:
       - event: "Transfer(address indexed from, address indexed to, uint256 value)"
 
 chains:
-  - id: 11155111  # Sepolia
-    start_block: 11068176
+  - id: 1  # Ethereum Mainnet
+    start_block: 25447050
     contracts:
       - name: AmmalgamFactory
-        address: "0x5a6a9c26587f80ef235903e6de814cb35cf26307"
+        address: "0x1a411b0fd1f368d2f413a8cbb6aad425c923015b"
       - name: AmmalgamPair
       - name: ERC4626Deposit
       - name: ERC20DepositLiquidity

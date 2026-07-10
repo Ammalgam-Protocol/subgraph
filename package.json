@@ -2,6 +2,7 @@
   "name": "ammalgam-indexer",
   "license": "UNLICENSED",
   "type": "module",
+  "packageManager": "pnpm@10.32.1",
   "engines": {
     "node": ">=22.0.0"
   },
@@ -17,14 +18,20 @@
     "check:fix": "biome check --write ."
   },
   "dependencies": {
-    "envio": "3.1.1",
-    "viem": "2.52.2"
+    "envio": "3.2.1",
+    "viem": "2.55.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.9",
-    "@types/node": "^25.5.0",
-    "@vitest/coverage-v8": "^4.1.8",
+    "@ast-grep/cli": "^0.44.1",
+    "@biomejs/biome": "^2.5.3",
+    "@types/node": "^26.1.1",
+    "@vitest/coverage-v8": "^4.1.10",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.10"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@ast-grep/cli"
+    ]
   }
 }

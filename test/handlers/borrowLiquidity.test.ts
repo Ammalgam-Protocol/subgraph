@@ -1,7 +1,7 @@
 import { createTestIndexer } from 'envio'
 import { describe, expect, it } from 'vitest'
 
-import { getPositionId, scopedId } from '../../src/utils/id'
+import { getEventId, getPositionId, scopedId } from '../../src/utils/id'
 import { createDefaultPool } from '../../src/utils/pool'
 
 const CHAIN = 11155111
@@ -24,11 +24,12 @@ function seed(indexer: ReturnType<typeof createTestIndexer>) {
     pool_id: POOL_ID,
     tokenType: 3, // BORROW_L
   })
-  indexer.Pool.set({ ...createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n) })
+  const pool = createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n)
+  indexer.Pool.set({ ...pool, totalAssets: [0n, 0n, 0n, 1000n, 0n, 0n] })
 }
 
 describe('borrowLiquidity handlers', () => {
-  it('BorrowLiquidity sets BORROW_L and principal = -assets', async () => {
+  it('BorrowLiquidity bumps counters and writes the entity; totals untouched', async () => {
     const indexer = createTestIndexer()
     seed(indexer)
     await indexer.process({
@@ -48,13 +49,19 @@ describe('borrowLiquidity handlers', () => {
         },
       },
     })
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    expect(pool.borrowCount).toBe(1)
+    expect(pool.txCount).toBe(1)
+    expect(pool.totalAssets[3]).toBe(1000n) // semantic events no longer move totals
     const position = await indexer.Position.getOrThrow(POSITION_ID)
-    expect(position.assets[3]).toBe(400n) // BORROW_L
-    expect(position.principal).toBe(-400n)
     expect(position.borrowCount).toBe(1)
+    expect(position.assets[3]).toBe(0n)
+    expect(position.principal).toBe(0n)
+    const borrow = await indexer.Borrow.getOrThrow(getEventId(CHAIN, '0xbl', 0))
+    expect(borrow.amount).toBe(400n)
   })
 
-  it('RepayLiquidity decreases BORROW_L and adds principal', async () => {
+  it('RepayLiquidity attributes to the raw onBehalfOf (no rewrite) and bumps counters', async () => {
     const indexer = createTestIndexer()
     seed(indexer)
     indexer.Position.set({
@@ -92,8 +99,34 @@ describe('borrowLiquidity handlers', () => {
       },
     })
     const position = await indexer.Position.getOrThrow(POSITION_ID)
-    expect(position.assets[3]).toBe(400n)
-    expect(position.principal).toBe(-400n) // -600 + 200
     expect(position.repayCount).toBe(1)
+    expect(position.assets[3]).toBe(600n) // untouched from seed
+    expect(position.principal).toBe(-600n) // untouched from seed
+    const repay = await indexer.Repay.getOrThrow(getEventId(CHAIN, '0xrl', 0))
+    expect(repay.amount).toBe(200n)
+  })
+
+  it('Transfer skips zero-value transfers (returns early)', async () => {
+    const indexer = createTestIndexer()
+    seed(indexer)
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'ERC20DebtLiquidity',
+              event: 'Transfer',
+              srcAddress: DEBT_L,
+              logIndex: 0,
+              block: { number: 12, timestamp: 120 },
+              transaction: { hash: '0xtr', from: TO },
+              params: { from: SENDER, to: TO, value: 0n },
+            },
+          ],
+        },
+      },
+    })
+    const transfers = await indexer.Transfer.getAll()
+    expect(transfers).toHaveLength(0)
   })
 })

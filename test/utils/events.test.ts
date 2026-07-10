@@ -40,17 +40,18 @@ describe('lendingEventFields', () => {
 })
 
 describe('transferEventFields', () => {
-  it('sets amount and shares both to the transferred value', () => {
-    expect(
-      transferEventFields(event, 250n, {
-        senderId: 's',
-        receiverId: 'r',
-        poolId: 'p',
-        senderPositionId: 'sp',
-        receiverPositionId: 'rp',
-        assetId: 'a',
-      }),
-    ).toEqual({
+  it('carries independent amount (assets) and shares', () => {
+    const fields = transferEventFields(event, {
+      senderId: 's',
+      receiverId: 'r',
+      poolId: 'p',
+      senderPositionId: 'sp',
+      receiverPositionId: 'rp',
+      assetId: 'a',
+      amount: 110n,
+      shares: 100n,
+    })
+    expect(fields).toEqual({
       id: getEventId(11155111, '0xhash', 3),
       hash: '0xhash',
       logIndex: 3,
@@ -62,8 +63,10 @@ describe('transferEventFields', () => {
       senderPosition_id: 'sp',
       receiverPosition_id: 'rp',
       asset_id: 'a',
-      amount: 250n,
-      shares: 250n,
+      amount: 110n,
+      shares: 100n,
     })
+    expect(fields.amount).toBe(110n)
+    expect(fields.shares).toBe(100n)
   })
 })

@@ -1,7 +1,7 @@
 import { createTestIndexer } from 'envio'
 import { describe, expect, it } from 'vitest'
 
-import { getPositionId, scopedId } from '../../src/utils/id'
+import { getEventId, getPositionId, scopedId } from '../../src/utils/id'
 import { createDefaultPool } from '../../src/utils/pool'
 
 const CHAIN = 11155111
@@ -28,7 +28,7 @@ function seed(indexer: ReturnType<typeof createTestIndexer>) {
 }
 
 describe('depositLiquidity handlers', () => {
-  it('Mint sets DEPOSIT_L and principal = direct assets', async () => {
+  it('Mint bumps counters and writes the entity; totals untouched', async () => {
     const indexer = createTestIndexer()
     seed(indexer)
     await indexer.process({
@@ -48,17 +48,20 @@ describe('depositLiquidity handlers', () => {
         },
       },
     })
-    const position = await indexer.Position.getOrThrow(POSITION_ID)
-    expect(position.assets[0]).toBe(300n) // DEPOSIT_L
-    expect(position.principal).toBe(300n) // direct assets, no conversion
-    expect(position.depositCount).toBe(1)
     const pool = await indexer.Pool.getOrThrow(POOL_ID)
     expect(pool.depositCount).toBe(1)
-    const user = await indexer.User.getOrThrow(TO_ID)
-    expect(user.depositCount).toBe(1)
+    expect(pool.txCount).toBe(1)
+    expect(pool.totalAssets[0]).toBe(0n) // semantic events no longer move totals
+    const position = await indexer.Position.getOrThrow(POSITION_ID)
+    expect(position.depositCount).toBe(1)
+    expect(position.assets[0]).toBe(0n)
+    expect(position.principal).toBe(0n)
+    const deposit = await indexer.Deposit.getOrThrow(getEventId(CHAIN, '0xmint', 0))
+    expect(deposit.amount).toBe(300n)
+    expect(deposit.shares).toBe(290n)
   })
 
-  it('Burn decreases DEPOSIT_L and principal', async () => {
+  it('Burn attributes to the raw `to` (no rewrite) and bumps counters', async () => {
     const indexer = createTestIndexer()
     seed(indexer)
     indexer.Position.set({
@@ -96,12 +99,13 @@ describe('depositLiquidity handlers', () => {
       },
     })
     const position = await indexer.Position.getOrThrow(POSITION_ID)
-    expect(position.assets[0]).toBe(300n)
-    expect(position.principal).toBe(300n)
     expect(position.withdrawCount).toBe(1)
+    expect(position.assets[0]).toBe(500n) // untouched from seed
+    expect(position.principal).toBe(500n)
     const pool = await indexer.Pool.getOrThrow(POOL_ID)
     expect(pool.withdrawCount).toBe(1)
-    const user = await indexer.User.getOrThrow(TO_ID)
-    expect(user.withdrawCount).toBe(1)
+    const withdraw = await indexer.Withdraw.getOrThrow(getEventId(CHAIN, '0xburn', 0))
+    expect(withdraw.amount).toBe(200n)
+    expect(withdraw.shares).toBe(190n)
   })
 })

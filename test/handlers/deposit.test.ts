@@ -29,7 +29,7 @@ function seed(indexer: ReturnType<typeof createTestIndexer>) {
 }
 
 describe('deposit handlers', () => {
-  it('Deposit updates pool/position totals and principal', async () => {
+  it('Deposit bumps counters and writes the entity; totals untouched', async () => {
     const indexer = createTestIndexer()
     seed(indexer)
     await indexer.process({
@@ -51,15 +51,17 @@ describe('deposit handlers', () => {
     })
     const pool = await indexer.Pool.getOrThrow(POOL_ID)
     expect(pool.depositCount).toBe(1)
-    expect(pool.totalAssets[1]).toBe(100n) // DEPOSIT_X
+    expect(pool.txCount).toBe(1)
+    expect(pool.totalAssets[1]).toBe(0n) // semantic events no longer move totals
     const position = await indexer.Position.getOrThrow(POSITION_ID)
-    expect(position.assets[1]).toBe(100n)
-    expect(position.principal).toBe(100n)
+    expect(position.depositCount).toBe(1)
+    expect(position.assets[1]).toBe(0n)
+    expect(position.principal).toBe(0n)
     const deposit = await indexer.Deposit.getOrThrow(getEventId(CHAIN, '0xdep', 0))
     expect(deposit.amount).toBe(100n)
   })
 
-  it('Withdraw decreases totals and updates position', async () => {
+  it('Withdraw attributes to the raw receiver (no rewrite) and bumps counters', async () => {
     const indexer = createTestIndexer()
     seed(indexer)
     indexer.Position.set({
@@ -69,8 +71,8 @@ describe('deposit handlers', () => {
       hash: '0x',
       blockNumber: 1n,
       timestamp: 1n,
-      assets: [0n, 200n, 0n, 0n, 0n, 0n],
-      shares: [0n, 200n, 0n, 0n, 0n, 0n],
+      assets: [0n, 150n, 0n, 0n, 0n, 0n],
+      shares: [0n, 150n, 0n, 0n, 0n, 0n],
       principal: 0n,
       depositCount: 0,
       withdrawCount: 0,
@@ -97,10 +99,11 @@ describe('deposit handlers', () => {
       },
     })
     const position = await indexer.Position.getOrThrow(POSITION_ID)
-    expect(position.assets[1]).toBe(150n)
     expect(position.withdrawCount).toBe(1)
-    // principal -= convertXToL(50, reserveX=1000, activeLiquidity=1000) = 50, from 0 -> -50
-    expect(position.principal).toBe(-50n)
+    expect(position.assets[1]).toBe(150n) // untouched from seed
+    expect(position.principal).toBe(0n)
+    const withdraw = await indexer.Withdraw.getOrThrow(getEventId(CHAIN, '0xwd', 0))
+    expect(withdraw.amount).toBe(50n)
   })
 
   it('Transfer skips zero-value transfers (returns early)', async () => {

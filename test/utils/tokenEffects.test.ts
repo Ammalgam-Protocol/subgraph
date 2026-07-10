@@ -11,7 +11,6 @@ const OVERRIDE = '0x1111111111111111111111111111111111111111'
 const NORMAL = '0x2222222222222222222222222222222222222222'
 
 const config: ChainConfig = {
-  peripheralAddresses: [],
   wrappedNativeAddress: '',
   stablecoinAddresses: [],
   whitelistTokens: [],

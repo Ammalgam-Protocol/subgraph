@@ -7,6 +7,8 @@ pre-commit:
 pre-push:
   parallel: false
   jobs:
+    - name: structural-lint
+      run: pnpm exec ast-grep scan
     - name: codegen
       run: pnpm codegen
     - name: typecheck

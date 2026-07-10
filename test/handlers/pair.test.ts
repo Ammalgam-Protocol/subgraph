@@ -47,6 +47,17 @@ function seed(indexer: ReturnType<typeof createTestIndexer>) {
   indexer.Pool.set({ ...createDefaultPool(POOL_ID, TX_ID, TY_ID, 'TKX-TKY', 1n, 1n) })
 }
 
+function seedPool(
+  indexer: ReturnType<typeof createTestIndexer>,
+  overrides: { totalAssets?: bigint[]; reserveX?: bigint; reserveY?: bigint },
+) {
+  seed(indexer)
+  indexer.Pool.set({
+    ...createDefaultPool(POOL_ID, TX_ID, TY_ID, 'TKX-TKY', 1n, 1n),
+    ...overrides,
+  })
+}
+
 describe('pair handlers', () => {
   it('Sync updates reserves, prices, and creates a Sync entity', async () => {
     const indexer = createTestIndexer()
@@ -72,7 +83,7 @@ describe('pair handlers', () => {
     expect(pool.reserveX).toBe(2000n)
     expect(pool.reserveY).toBe(1000n)
     expect(pool.syncCount).toBe(1)
-    expect(pool.tokenXPrice.toString()).toBe('2')
+    expect(pool.tokenXPrice.toString()).toBe('0.5')
     const sync = await indexer.Sync.getOrThrow(getEventId(CHAIN, '0xsync', 0))
     expect(sync.reserveX).toBe(2000n)
   })
@@ -190,7 +201,8 @@ describe('pair handlers', () => {
     expect(pool.reserveX).toBe(4000n)
     expect(pool.reserveY).toBe(1000n)
     expect(pool.interestAccruedCount).toBe(1)
-    expect(pool.tokenXPrice.toString()).toBe('4')
+    expect(pool.tokenXPrice.toString()).toBe('0.25')
+    expect(pool.tokenYPrice.toString()).toBe('4')
     const ia = await indexer.InterestAccrued.getOrThrow(getEventId(CHAIN, '0xint', 3))
     expect(ia.borrowLAssets).toBe(300n)
     expect(ia.depositXAssets).toBe(100n)
@@ -227,5 +239,149 @@ describe('pair handlers', () => {
     expect(bbd.borrower_id).toBe(BORROWER_ID)
     expect(bbd.tokenType).toBe(4n)
     expect(bbd.badDebtAssets).toBe(700n)
+  })
+
+  it('InterestAccrued snapshots all 6 totalAssets including derived depositL', async () => {
+    const indexer = createTestIndexer()
+    seedPool(indexer, { totalAssets: [999n, 999n, 999n, 999n, 999n, 999n] })
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'AmmalgamPair',
+              event: 'InterestAccrued',
+              srcAddress: POOL,
+              logIndex: 0,
+              block: { number: 20, timestamp: 200 },
+              transaction: { hash: '0xint2', from: FROM },
+              params: {
+                reserveXAssets: 400n,
+                reserveYAssets: 900n,
+                depositXAssets: 500n,
+                depositYAssets: 600n,
+                borrowLAssets: 100n,
+                borrowXAssets: 200n,
+                borrowYAssets: 50n,
+              },
+            },
+          ],
+        },
+      },
+    })
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    // missingX = 0, missingY = 0 -> activeL = isqrt(400*900) = 600; depositL = 600 + 100
+    expect(pool.totalAssets).toEqual([700n, 500n, 600n, 100n, 200n, 50n])
+    expect(pool.reserveX).toBe(400n)
+  })
+
+  it('Sync recomputes totalAssets[DEPOSIT_L] from new reserves (D10)', async () => {
+    const indexer = createTestIndexer()
+    seedPool(indexer, { totalAssets: [700n, 500n, 600n, 100n, 200n, 50n] })
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'AmmalgamPair',
+              event: 'Sync',
+              srcAddress: POOL,
+              logIndex: 0,
+              block: { number: 21, timestamp: 210 },
+              transaction: { hash: '0xsync2', from: FROM },
+              params: { reserveXAssets: 1600n, reserveYAssets: 900n },
+            },
+          ],
+        },
+      },
+    })
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    // missing 0/0 -> activeL = isqrt(1600*900) = 1200 -> depositL = 1300
+    expect(pool.totalAssets[0]).toBe(1300n)
+    expect(pool.totalAssets.slice(1)).toEqual([500n, 600n, 100n, 200n, 50n])
+  })
+
+  it('BurnBadDebt BORROW_X applies the deposit-side haircut', async () => {
+    const indexer = createTestIndexer()
+    seedPool(indexer, { reserveX: 1000n, totalAssets: [0n, 900n, 0n, 0n, 500n, 0n] })
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'AmmalgamPair',
+              event: 'BurnBadDebt',
+              srcAddress: POOL,
+              logIndex: 0,
+              block: { number: 22, timestamp: 220 },
+              transaction: { hash: '0xbbdx', from: FROM },
+              params: {
+                borrower: BORROWER,
+                tokenType: 4n,
+                badDebtAssets: 190n,
+                badDebtShares: 190n,
+              },
+            },
+          ],
+        },
+      },
+    })
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    // burnReserves = mulDiv(190, 1000, 900+1000) = 100 -> DEPOSIT_X -= (190-100) = 810
+    expect(pool.totalAssets[1]).toBe(810n)
+    expect(pool.reserveX).toBe(1000n)
+  })
+
+  it('BurnBadDebt BORROW_L decrements DEPOSIT_L directly', async () => {
+    const indexer = createTestIndexer()
+    seedPool(indexer, { totalAssets: [700n, 0n, 0n, 300n, 0n, 0n] })
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'AmmalgamPair',
+              event: 'BurnBadDebt',
+              srcAddress: POOL,
+              logIndex: 0,
+              block: { number: 23, timestamp: 230 },
+              transaction: { hash: '0xbbdl', from: FROM },
+              params: {
+                borrower: BORROWER,
+                tokenType: 3n,
+                badDebtAssets: 50n,
+                badDebtShares: 50n,
+              },
+            },
+          ],
+        },
+      },
+    })
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    expect(pool.totalAssets[0]).toBe(650n)
+  })
+
+  it('UpdateExternalLiquidity stores the value', async () => {
+    const indexer = createTestIndexer()
+    seed(indexer)
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'AmmalgamPair',
+              event: 'UpdateExternalLiquidity',
+              srcAddress: POOL,
+              logIndex: 0,
+              block: { number: 24, timestamp: 240 },
+              transaction: { hash: '0xext', from: FROM },
+              params: { externalLiquidity: 777n },
+            },
+          ],
+        },
+      },
+    })
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    expect(pool.externalLiquidity).toBe(777n)
   })
 })

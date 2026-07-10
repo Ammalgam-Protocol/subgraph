@@ -13,6 +13,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm codegen
       - run: pnpm check
+      - run: pnpm exec ast-grep scan
       - run: pnpm tsc --noEmit
       - run: pnpm test:coverage
   integration:

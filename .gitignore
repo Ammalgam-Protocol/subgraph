@@ -27,8 +27,8 @@ dist/
 # Logs
 *.log
 
-# gstack
-.gstack/
+# codegraph
+.codegraph
 
 # Envio runtime data
 data/

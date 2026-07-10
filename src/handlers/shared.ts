@@ -1,9 +1,10 @@
-import type { EvmOnEventContext, Pool, Position, User } from 'envio'
+import type { EvmOnEventContext, Pool } from 'envio'
 
-import { addAt, subtractAt } from '../utils/array'
-import { isIgnoredForTransfer } from '../utils/chains'
+import { addAt, updateAt } from '../utils/array'
+import { ADDRESS_ZERO } from '../utils/constants'
 import { transferEventFields } from '../utils/events'
 import { getPositionId, scopedId } from '../utils/id'
+import { principalContribution, toAssets } from '../utils/math'
 import { createDefaultPosition } from '../utils/position'
 import { createDefaultUser } from '../utils/user'
 
@@ -24,7 +25,8 @@ type TransferEvent = LoadEvent &
     params: { from: string; to: string; value: bigint }
   }
 
-type AssetCounter = 'deposit' | 'withdraw' | 'borrow' | 'repay'
+type PoolAction = 'deposit' | 'withdraw' | 'borrow' | 'repay'
+type TransferType = 'transferred' | 'received'
 
 export async function loadLendingTokenAndPool(context: EvmOnEventContext, event: LoadEvent) {
   const lendingToken = await context.LendingToken.get(scopedId(event.chainId, event.srcAddress))
@@ -36,14 +38,17 @@ export async function loadLendingTokenAndPool(context: EvmOnEventContext, event:
   return { lendingToken, pool }
 }
 
+export async function getOrCreateUser(context: EvmOnEventContext, userId: string) {
+  return (await context.User.get(userId)) ?? createDefaultUser(userId)
+}
+
 export async function getOrCreatePosition(
   context: EvmOnEventContext,
   userId: string,
   pool: { id: string },
   event: PositionEvent,
 ) {
-  let user = await context.User.get(userId)
-  if (!user) user = createDefaultUser(userId)
+  let user = await getOrCreateUser(context, userId)
 
   const positionId = getPositionId(userId, pool.id)
   let position = await context.Position.get(positionId)
@@ -63,142 +68,195 @@ export async function getOrCreatePosition(
   return { user, position, positionId, newPositions }
 }
 
-// Records the raw event.params.sender as a User if it does not already exist.
-// Sender carries no counter change on asset-mutation events.
-export async function ensureSender(context: EvmOnEventContext, senderId: string) {
-  const sender = await context.User.get(senderId)
-  if (!sender) context.User.set(createDefaultUser(senderId))
-}
-
-export function applyAssetDelta(
+// Shared by the 8 pool lending action handlers: counters + entities only.
+export async function handleLendingAction(
   context: EvmOnEventContext,
-  args: {
-    pool: Pool
-    position: Position
-    user: User
-    newPositions: number
-    tokenType: number
-    assets: bigint
-    shares: bigint
-    sign: 1 | -1
-    counter: AssetCounter
-    principal: bigint
-  },
-) {
-  const {
+  event: PositionEvent & { chainId: number },
+  pool: Pool,
+  args: { recipient: string; sender: string; action: PoolAction },
+): Promise<{ userId: string; senderId: string; positionId: string }> {
+  const userId = scopedId(event.chainId, args.recipient)
+  const { user, position, positionId, newPositions } = await getOrCreatePosition(
+    context,
+    userId,
     pool,
-    position,
-    user,
-    newPositions,
-    tokenType,
-    assets,
-    shares,
-    sign,
-    counter,
-    principal,
-  } = args
-  const apply = sign === 1 ? addAt : subtractAt
-  const field = `${counter}Count` as const
+    event,
+  )
+  const field = `${args.action}Count` as const
 
   context.Pool.set({
     ...pool,
     positionCount: pool.positionCount + newPositions,
-    totalAssets: apply(pool.totalAssets, assets, tokenType),
-    totalShares: apply(pool.totalShares, shares, tokenType),
     [field]: pool[field] + 1,
     txCount: pool.txCount + 1,
   })
-
-  context.Position.set({
-    ...position,
-    assets: apply(position.assets, assets, tokenType),
-    shares: apply(position.shares, shares, tokenType),
-    principal: position.principal + principal,
-    [field]: position[field] + 1,
-  })
-
+  context.Position.set({ ...position, [field]: position[field] + 1 })
   context.User.set({ ...user, [field]: user[field] + 1 })
+
+  // No counter/position mutation: sender only needs a User row to exist.
+  const senderId = scopedId(event.chainId, args.sender)
+  context.User.set(await getOrCreateUser(context, senderId))
+
+  return { userId, senderId, positionId }
 }
 
-export async function handleLendingTokenTransfer(event: TransferEvent, context: EvmOnEventContext) {
-  if (
-    isIgnoredForTransfer(event.chainId, event.params.from) ||
-    isIgnoredForTransfer(event.chainId, event.params.to) ||
-    event.params.value === 0n
-  ) {
-    return
-  }
+// Recomputes assets from the post-delta pool rate, not pre-delta.
+// Returns 1 when a new Position row is created.
+async function applyPositionDelta(
+  context: EvmOnEventContext,
+  event: PositionEvent,
+  pool: Pool,
+  userId: string,
+  tokenType: number,
+  sharesDelta: bigint,
+  principalDelta: bigint,
+  transferType?: TransferType,
+): Promise<number> {
+  let user = await getOrCreateUser(context, userId)
 
-  const loaded = await loadLendingTokenAndPool(context, event)
-  if (!loaded) return
-  const { lendingToken, pool } = loaded
-
-  const senderId = scopedId(event.chainId, event.params.from)
-  const receiverId = scopedId(event.chainId, event.params.to)
-
-  // Skip transfers to/from the pool contract itself (both sides chain-scoped, already lowercase).
-  if (senderId === pool.id || receiverId === pool.id) return
-
-  const tokenType = lendingToken.tokenType
-
-  let sender = await context.User.get(senderId)
-  if (!sender) sender = createDefaultUser(senderId)
-
-  const senderPositionId = getPositionId(senderId, pool.id)
-  const senderPosition = await context.Position.get(senderPositionId)
-  if (!senderPosition) return
-
-  const updatedSenderPosition = {
-    ...senderPosition,
-    assets: subtractAt(senderPosition.assets, event.params.value, tokenType),
-    shares: subtractAt(senderPosition.shares, event.params.value, tokenType),
-    transferredCount: senderPosition.transferredCount + 1,
-  }
-
-  let receiver = await context.User.get(receiverId)
-  if (!receiver) receiver = createDefaultUser(receiverId)
-
-  const receiverPositionId = getPositionId(receiverId, pool.id)
-  let receiverPosition = await context.Position.get(receiverPositionId)
+  const positionId = getPositionId(userId, pool.id)
+  let position = await context.Position.get(positionId)
   let newPositions = 0
-  if (!receiverPosition) {
-    receiverPosition = createDefaultPosition(
-      receiverId,
+  if (!position) {
+    position = createDefaultPosition(
+      userId,
       pool.id,
       event.transaction.hash,
       BigInt(event.block.number),
       BigInt(event.block.timestamp),
     )
-    receiver = { ...receiver, positionCount: receiver.positionCount + 1 }
+    user = { ...user, positionCount: user.positionCount + 1 }
     newPositions = 1
   }
 
-  const updatedReceiverPosition = {
-    ...receiverPosition,
-    assets: addAt(receiverPosition.assets, event.params.value, tokenType),
-    shares: addAt(receiverPosition.shares, event.params.value, tokenType),
-    receivedCount: receiverPosition.receivedCount + 1,
+  const shares = addAt(position.shares, sharesDelta, tokenType)
+  const assets = updateAt(
+    position.assets,
+    toAssets(
+      shares[tokenType] ?? 0n,
+      pool.totalAssets[tokenType] ?? 0n,
+      pool.totalShares[tokenType] ?? 0n,
+    ),
+    tokenType,
+  )
+
+  const counterField = transferType ? (`${transferType}Count` as const) : undefined
+  context.User.set(counterField ? { ...user, [counterField]: user[counterField] + 1 } : user)
+  context.Position.set({
+    ...position,
+    shares,
+    assets,
+    principal: position.principal + principalDelta,
+    ...(counterField ? { [counterField]: position[counterField] + 1 } : {}),
+  })
+  return newPositions
+}
+
+export async function handleLendingTokenTransfer(event: TransferEvent, context: EvmOnEventContext) {
+  if (event.params.value === 0n) return
+
+  const loaded = await loadLendingTokenAndPool(context, event)
+  if (!loaded) return
+  const { lendingToken, pool } = loaded
+
+  const tokenType = lendingToken.tokenType
+  const value = event.params.value
+  const senderId = scopedId(event.chainId, event.params.from)
+  const receiverId = scopedId(event.chainId, event.params.to)
+
+  // Pre-delta rate: implied assets and principal use the totals before this transfer.
+  const assetsImplied = toAssets(
+    value,
+    pool.totalAssets[tokenType] ?? 0n,
+    pool.totalShares[tokenType] ?? 0n,
+  )
+  const contribution = principalContribution(tokenType, assetsImplied, pool)
+
+  const isMint = event.params.from.toLowerCase() === ADDRESS_ZERO
+  const isBurn = event.params.to.toLowerCase() === ADDRESS_ZERO
+
+  if (isMint) {
+    const updatedPool = {
+      ...pool,
+      totalShares: addAt(pool.totalShares, value, tokenType),
+      totalAssets: addAt(pool.totalAssets, assetsImplied, tokenType),
+    }
+    const newPositions = await applyPositionDelta(
+      context,
+      event,
+      updatedPool,
+      receiverId,
+      tokenType,
+      value,
+      contribution,
+    )
+    context.Pool.set({ ...updatedPool, positionCount: updatedPool.positionCount + newPositions })
+    return
   }
+
+  if (isBurn) {
+    const updatedPool = {
+      ...pool,
+      totalShares: addAt(pool.totalShares, -value, tokenType),
+      totalAssets: addAt(pool.totalAssets, -assetsImplied, tokenType),
+    }
+    const newPositions = await applyPositionDelta(
+      context,
+      event,
+      updatedPool,
+      senderId,
+      tokenType,
+      -value,
+      -contribution,
+    )
+    context.Pool.set({ ...updatedPool, positionCount: updatedPool.positionCount + newPositions })
+    return
+  }
+
+  // Move: pool totals unchanged, both sides independent. Entity + counters only
+  const isUserFacing = senderId !== pool.id && receiverId !== pool.id
+  const senderCounter = isUserFacing ? ('transferred' as const) : undefined
+  const receiverCounter = isUserFacing ? ('received' as const) : undefined
+
+  const newFromSender = await applyPositionDelta(
+    context,
+    event,
+    pool,
+    senderId,
+    tokenType,
+    -value,
+    -contribution,
+    senderCounter,
+  )
+  const newFromReceiver = await applyPositionDelta(
+    context,
+    event,
+    pool,
+    receiverId,
+    tokenType,
+    value,
+    contribution,
+    receiverCounter,
+  )
 
   context.Pool.set({
     ...pool,
-    positionCount: pool.positionCount + newPositions,
-    transferCount: pool.transferCount + 1,
-    txCount: pool.txCount + 1,
+    positionCount: pool.positionCount + newFromSender + newFromReceiver,
+    ...(isUserFacing ? { transferCount: pool.transferCount + 1, txCount: pool.txCount + 1 } : {}),
   })
-  context.Position.set(updatedSenderPosition)
-  context.Position.set(updatedReceiverPosition)
-  context.User.set({ ...sender, transferredCount: sender.transferredCount + 1 })
-  context.User.set({ ...receiver, receivedCount: receiver.receivedCount + 1 })
 
-  context.Transfer.set(
-    transferEventFields(event, event.params.value, {
-      senderId,
-      receiverId,
-      poolId: pool.id,
-      senderPositionId,
-      receiverPositionId,
-      assetId: lendingToken.id,
-    }),
-  )
+  if (isUserFacing) {
+    context.Transfer.set(
+      transferEventFields(event, {
+        senderId,
+        receiverId,
+        poolId: pool.id,
+        senderPositionId: getPositionId(senderId, pool.id),
+        receiverPositionId: getPositionId(receiverId, pool.id),
+        assetId: lendingToken.id,
+        amount: assetsImplied,
+        shares: value,
+      }),
+    )
+  }
 }
