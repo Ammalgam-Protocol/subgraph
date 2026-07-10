@@ -36,6 +36,7 @@ export function createDefaultPool(
     volumeTokenX: ZERO_BD,
     volumeTokenY: ZERO_BD,
     positionCount: 0,
+    externalLiquidity: ZERO_BI,
   }
 }
 
@@ -50,7 +51,7 @@ export function poolPriceFields(
   return {
     reserveX: reserveXAssets,
     reserveY: reserveYAssets,
-    tokenXPrice: safeDiv(reserveX, reserveY),
-    tokenYPrice: safeDiv(reserveY, reserveX),
+    tokenXPrice: safeDiv(reserveY, reserveX),
+    tokenYPrice: safeDiv(reserveX, reserveY),
   }
 }

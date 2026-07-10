@@ -43,7 +43,6 @@ export function lendingEventFields(
 
 export function transferEventFields(
   event: EventHeaderSource,
-  value: bigint,
   args: {
     senderId: string
     receiverId: string
@@ -51,6 +50,8 @@ export function transferEventFields(
     senderPositionId: string
     receiverPositionId: string
     assetId: string
+    amount: bigint
+    shares: bigint
   },
 ) {
   return {
@@ -61,7 +62,7 @@ export function transferEventFields(
     senderPosition_id: args.senderPositionId,
     receiverPosition_id: args.receiverPositionId,
     asset_id: args.assetId,
-    amount: value,
-    shares: value,
+    amount: args.amount,
+    shares: args.shares,
   }
 }

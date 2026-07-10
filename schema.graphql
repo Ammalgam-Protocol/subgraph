@@ -14,7 +14,7 @@ type LendingToken {
   symbol: String!
   name: String!
   decimals: Int!
-  pool: Pool! @index
+  pool: Pool!
   tokenType: Int!
 }
 
@@ -45,6 +45,7 @@ type Pool {
   volumeTokenX: BigDecimal!
   volumeTokenY: BigDecimal!
   positionCount: Int!
+  externalLiquidity: BigInt!
   lendingTokens: [LendingToken!]! @derivedFrom(field: "pool")
   positions: [Position!]! @derivedFrom(field: "pool")
   deposits: [Deposit!]! @derivedFrom(field: "pool")

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { addAt, subtractAt, updateAt } from '../../src/utils/array'
+import { addAt, updateAt } from '../../src/utils/array'
 
 describe('array utils', () => {
   const base = [0n, 100n, 200n, 300n, 400n, 500n]
@@ -19,10 +19,6 @@ describe('array utils', () => {
     expect(addAt(base, 50n, 1)).toEqual([0n, 150n, 200n, 300n, 400n, 500n])
   })
 
-  it('subtractAt subtracts value at index', () => {
-    expect(subtractAt(base, 50n, 1)).toEqual([0n, 50n, 200n, 300n, 400n, 500n])
-  })
-
   it('updateAt returns copy for negative index', () => {
     const result = updateAt(base, 999n, -1)
     expect(result).toEqual(base)
@@ -31,9 +27,5 @@ describe('array utils', () => {
 
   it('addAt treats out-of-bounds index as no-op copy', () => {
     expect(addAt(base, 50n, 10)).toEqual(base)
-  })
-
-  it('subtractAt treats out-of-bounds index as no-op copy', () => {
-    expect(subtractAt(base, 50n, 10)).toEqual(base)
   })
 })

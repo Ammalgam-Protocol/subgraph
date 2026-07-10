@@ -1,0 +1,8 @@
+id: no-context-chain-id
+language: typescript
+severity: error
+message: Use event.chainId, not context.chain.id. context.chain.id exists on the Envio context type, so it is a silent wrong-value trap rather than a compile error.
+files:
+  - "src/**/*.ts"
+rule:
+  pattern: $CTX.chain.id

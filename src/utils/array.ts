@@ -9,8 +9,3 @@ export function addAt(arr: readonly bigint[], value: bigint, index: number): big
   const current = arr[index] ?? 0n
   return updateAt(arr, current + value, index)
 }
-
-export function subtractAt(arr: readonly bigint[], value: bigint, index: number): bigint[] {
-  const current = arr[index] ?? 0n
-  return updateAt(arr, current - value, index)
-}

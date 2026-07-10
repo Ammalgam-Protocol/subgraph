@@ -38,11 +38,52 @@ export function convertYToL(amountY: bigint, reserveY: bigint, activeLiquidity: 
   return (amountY * activeLiquidity) / reserveY
 }
 
-export function principalDelta(
+export function mulDiv(a: bigint, b: bigint, denominator: bigint): bigint {
+  if (denominator === 0n) return 0n
+  return (a * b) / denominator
+}
+
+// ERC4626 share->asset conversion, floor (Convert.toAssets with !ROUNDING_UP).
+export function toAssets(shares: bigint, totalAssets: bigint, totalShares: bigint): bigint {
+  if (totalShares === 0n) return shares
+  return mulDiv(shares, totalAssets, totalShares)
+}
+
+// Floor integer sqrt via Newton's method, matching Solidity Math.sqrt.
+export function isqrt(value: bigint): bigint {
+  if (value < 0n) throw new Error('isqrt of negative value')
+  if (value < 2n) return value
+  let x0 = value / 2n
+  let x1 = (x0 + value / x0) / 2n
+  while (x1 < x0) {
+    x0 = x1
+    x1 = (x0 + value / x0) / 2n
+  }
+  return x0
+}
+
+// Convert.calculateReserveAdjustmentsForMissingAssets with BUFFER=19, BUFFER_NUMERATOR=20.
+export function reserveAdjustment(reserve: bigint, missing: bigint): bigint {
+  return reserve * 19n < missing * 20n ? (reserve - missing) * 20n : reserve
+}
+
+export function depletionAdjustedActiveLiquidity(
+  reserveX: bigint,
+  reserveY: bigint,
+  missingX: bigint,
+  missingY: bigint,
+): bigint {
+  return isqrt(reserveAdjustment(reserveX, missingX) * reserveAdjustment(reserveY, missingY))
+}
+
+// Signed L-denominated principal contribution of an asset delta.
+export function principalContribution(
   tokenType: number,
   assets: bigint,
   pool: { reserveX: bigint; reserveY: bigint; totalAssets: readonly bigint[] },
 ): bigint {
+  if (tokenType === DEPOSIT_L) return assets
+  if (tokenType === BORROW_L) return -assets
   const activeLiquidity = pool.totalAssets[DEPOSIT_L] - pool.totalAssets[BORROW_L]
   if (tokenType === DEPOSIT_X) return convertXToL(assets, pool.reserveX, activeLiquidity)
   if (tokenType === DEPOSIT_Y) return convertYToL(assets, pool.reserveY, activeLiquidity)

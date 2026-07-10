@@ -1,0 +1,10 @@
+id: no-nondeterminism
+language: typescript
+severity: error
+message: No Date.now() / Math.random() in indexer code. Handlers run twice under preload and must be deterministic; derive time from event.block.timestamp.
+files:
+  - "src/**/*.ts"
+rule:
+  any:
+    - pattern: Date.now()
+    - pattern: Math.random()

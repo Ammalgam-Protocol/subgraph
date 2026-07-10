@@ -1,5 +1,3 @@
-import { ADDRESS_ZERO } from './constants'
-
 export interface StaticTokenDefinition {
   address: string
   symbol: string
@@ -8,7 +6,6 @@ export interface StaticTokenDefinition {
 }
 
 export interface ChainConfig {
-  peripheralAddresses: string[]
   wrappedNativeAddress: string
   stablecoinAddresses: string[]
   whitelistTokens: string[]
@@ -21,7 +18,6 @@ export interface ChainConfig {
 const CHAIN_CONFIGS: Record<number, ChainConfig> = {
   11155111: {
     // Sepolia
-    peripheralAddresses: ['0xaffc6c525660480da9656165490aa9c27e5ea9b3'],
     wrappedNativeAddress: '0xfff9976782d46cc05630d1f6ebab18b2324d6b14',
     stablecoinAddresses: [
       '0x7a2fc218a5a43b88a622ad9b67a59d3a73c52aad', // USDC
@@ -32,6 +28,26 @@ const CHAIN_CONFIGS: Record<number, ChainConfig> = {
       '0x7a2fc218a5a43b88a622ad9b67a59d3a73c52aad', // USDC
       '0x155b2f181512f0def9d8d2b5630bc735db926fef', // USDT
       '0xfff9976782d46cc05630d1f6ebab18b2324d6b14', // WETH
+      '0x7e30783246a50ca74c1f4862df62f7d9ae07b304', // WBTC
+      '0x63145437b3e47f08a6dad3f4688e1389dea310ed', // PEPE
+      '0xb403bb708512205515806053c8b1671a5d87fa39', // SHIB
+    ],
+    tokenOverrides: [],
+    poolsToSkip: [],
+    nativeTokenDetails: { symbol: 'ETH', name: 'Ethereum', decimals: 18 },
+  },
+  1: {
+    // Ethereum Mainnet
+    wrappedNativeAddress: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+    stablecoinAddresses: [
+      '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', // USDC
+      '0xdac17f958d2ee523a2206206994597c13d831ec7', // USDT
+    ],
+    whitelistTokens: [
+      '0x0000000000000000000000000000000000000000', // Native ETH
+      '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', // USDC
+      '0xdac17f958d2ee523a2206206994597c13d831ec7', // USDT
+      '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', // WETH
     ],
     tokenOverrides: [],
     poolsToSkip: [],
@@ -48,19 +64,15 @@ export function getChainConfig(chainId: number): ChainConfig {
 }
 
 interface ChainSets {
-  peripheral: Set<string>
-  ignoredForTransfer: Set<string>
   whitelist: Set<string>
   poolsToSkip: Set<string>
 }
 
-// Immutable, derived once from the static config — preload-safe (never mutated).
+// Immutable, derived once from the static config.
 const CHAIN_SETS: Record<number, ChainSets> = Object.fromEntries(
   Object.entries(CHAIN_CONFIGS).map(([chainId, config]) => [
     Number(chainId),
     {
-      peripheral: new Set(config.peripheralAddresses),
-      ignoredForTransfer: new Set([ADDRESS_ZERO, ...config.peripheralAddresses]),
       whitelist: new Set(config.whitelistTokens),
       poolsToSkip: new Set(config.poolsToSkip),
     },
@@ -75,22 +87,10 @@ function getChainSets(chainId: number): ChainSets {
   return sets
 }
 
-export function isPeripheral(chainId: number, address: string): boolean {
-  return getChainSets(chainId).peripheral.has(address.toLowerCase())
-}
-
-export function isIgnoredForTransfer(chainId: number, address: string): boolean {
-  return getChainSets(chainId).ignoredForTransfer.has(address.toLowerCase())
-}
-
 export function isWhitelisted(chainId: number, address: string): boolean {
   return getChainSets(chainId).whitelist.has(address.toLowerCase())
 }
 
 export function shouldSkipPool(chainId: number, address: string): boolean {
   return getChainSets(chainId).poolsToSkip.has(address.toLowerCase())
-}
-
-export function resolveBeneficiary(chainId: number, recipient: string, txFrom: string): string {
-  return isPeripheral(chainId, recipient) ? txFrom : recipient
 }

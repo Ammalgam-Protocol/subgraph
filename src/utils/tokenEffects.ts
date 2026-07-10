@@ -1,6 +1,6 @@
 import { createEffect, S } from 'envio'
 import { type Chain, createPublicClient, http, parseAbi } from 'viem'
-import { sepolia } from 'viem/chains'
+import { mainnet, sepolia } from 'viem/chains'
 
 import { type ChainConfig, getChainConfig } from './chains'
 import { ADDRESS_ZERO } from './constants'
@@ -11,16 +11,20 @@ const ERC20_ABI = parseAbi([
   'function decimals() view returns (uint8)',
 ])
 
-// viem chain per supported chainId — keep in sync with chains.ts CHAIN_CONFIGS.
-// Using the correct chain object ensures the right multicall3 address and
-// EIP-1559 assumptions for each network (not always Sepolia's).
+// viem chain per supported chainId: keep in sync with chains.ts CHAIN_CONFIGS.
+// The chain object determines the multicall3 address and EIP-1559 assumptions used.
 const VIEM_CHAINS: Record<number, Chain> = {
   11155111: sepolia,
+  1: mainnet,
 }
 
-// Narrow structural dependency: resolvers only need "read a contract function
-// and get a value back". Decoupling from viem's heavily-generic readContract
-// signature lets plain mock clients satisfy this in tests under tsc.
+// Public RPC URLs for each chain to fetch token metadata.
+const PUBLIC_RPC_URLS: Record<number, string> = {
+  11155111: 'https://ethereum-sepolia-rpc.publicnode.com',
+  1: 'https://ethereum-rpc.publicnode.com',
+}
+
+// `viem` client type for read-only operations.
 type ReadOnlyClient = {
   readContract: (args: {
     address: `0x${string}`
@@ -38,14 +42,13 @@ function getClient(chainId: number) {
     const chain = VIEM_CHAINS[chainId]
     if (!chain) throw new Error(`Unsupported chain for RPC client: ${chainId}`)
     // ENVIO_ prefix is mandatory: the hosted service only exposes env vars that
-    // start with ENVIO_ at runtime (see indexer-configuration skill).
-    // ENVIO_RPC_RETRY_COUNT overrides viem's retry count (default 3); the offline
-    // test suite sets it to 0 so unreachable-RPC reads fail instantly/deterministically.
+    // ENVIO_RPC_RETRY_COUNT overrides viem's retry count (default 3)
     const retryEnv = process.env.ENVIO_RPC_RETRY_COUNT
+    const rpcUrl = process.env[`ENVIO_RPC_URL_${chainId}`] ?? PUBLIC_RPC_URLS[chainId]
     clients[chainId] = createPublicClient({
       chain,
       transport: http(
-        process.env[`ENVIO_RPC_URL_${chainId}`],
+        rpcUrl,
         retryEnv !== undefined ? { retryCount: Number(retryEnv) } : undefined,
       ),
       batch: { multicall: true },
@@ -112,28 +115,21 @@ export async function resolveTokenDecimals(
       functionName: 'decimals',
     })
     const decimals = Number(result)
-    // Mirror the original subgraph: treat an implausible decimals value (>= 255)
-    // as a failed read (return 0) rather than scaling amounts by 10^255, which
-    // would collapse every amount for this token to ~0.
+    // Return 0 if the decimals value is >= 255, as this is an invalid value.
     return decimals < 255 ? decimals : 0
   } catch {
     return 0
   }
 }
 
-// v8 ignore: parseInput and the createEffect wrappers below run only inside the
-// Envio worker thread when handlers call context.effect, which v8 coverage cannot
-// observe. Their behavior is exercised end-to-end by factory.test.ts; the branchy
-// resolver logic above is unit-tested directly at 100%.
+// v8 ignore: parseInput and the createEffect wrappers below run only inside the Envio worker thread.
 /* v8 ignore start */
 function parseInput(input: string): { chainId: number; address: string } {
   const [chainIdStr, address] = input.split(':')
   return { chainId: Number(chainIdStr), address }
 }
 
-// Single batched metadata effect: one effect call per token resolves symbol,
-// name and decimals together (the underlying viem reads are multicall-batched),
-// instead of three separate sequential effect awaits per token.
+// Single batched metadata effect: one effect call per token resolves symbol, name and decimals together.
 export const fetchTokenMetadata = createEffect(
   {
     name: 'fetchTokenMetadata',
