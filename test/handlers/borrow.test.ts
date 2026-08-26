@@ -107,6 +107,38 @@ describe('borrow handlers', () => {
     expect(repay.amount).toBe(100n)
   })
 
+  // burnBadDebt emits Repay with the pair as sender; the BurnBadDebt handler
+  // already records the writeoff, so it must not count as user repay activity.
+  it('Repay with the pair as sender skips counters but keeps the entity', async () => {
+    const indexer = createTestIndexer()
+    seed(indexer)
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'ERC4626Debt',
+              event: 'Repay',
+              srcAddress: DEBT_X,
+              logIndex: 0,
+              block: { number: 11, timestamp: 110 },
+              transaction: { hash: '0xbad', from: OWNER },
+              params: { sender: POOL, onBehalfOf: OWNER, assets: 100n, shares: 90n },
+            },
+          ],
+        },
+      },
+    })
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    expect(pool.repayCount).toBe(0)
+    expect(pool.txCount).toBe(0)
+    // The Position still exists, so the writeoff stays queryable per borrower.
+    const position = await indexer.Position.getOrThrow(POSITION_ID)
+    expect(position.repayCount).toBe(0)
+    const repay = await indexer.Repay.getOrThrow(getEventId(CHAIN, '0xbad', 0))
+    expect(repay.amount).toBe(100n)
+  })
+
   // key regression: recipient attribution is the raw on-chain param,
   // never transaction.from, even when they differ.
   it('Borrow attributes the position to params.to, not transaction.from', async () => {

@@ -32,3 +32,5 @@ dist/
 
 # Envio runtime data
 data/
+
+.superpowers/

@@ -1,6 +1,13 @@
 import { BigDecimal } from 'envio'
 
-import { BORROW_L, DEPOSIT_L, DEPOSIT_X, DEPOSIT_Y } from './constants'
+import {
+  BIPS,
+  BORROW_L,
+  DEPOSIT_L,
+  DEPOSIT_X,
+  DEPOSIT_Y,
+  INITIAL_LENDING_FEE_BIPS,
+} from './constants'
 
 export const ZERO_BD = new BigDecimal(0)
 export const ONE_BD = new BigDecimal(1)
@@ -41,6 +48,11 @@ export function convertYToL(amountY: bigint, reserveY: bigint, activeLiquidity: 
 export function mulDiv(a: bigint, b: bigint, denominator: bigint): bigint {
   if (denominator === 0n) return 0n
   return (a * b) / denominator
+}
+
+export function mulDivCeil(a: bigint, b: bigint, denominator: bigint): bigint {
+  if (denominator === 0n) return 0n
+  return (a * b + denominator - 1n) / denominator
 }
 
 // ERC4626 share->asset conversion, floor (Convert.toAssets with !ROUNDING_UP).
@@ -88,4 +100,14 @@ export function principalContribution(
   if (tokenType === DEPOSIT_X) return convertXToL(assets, pool.reserveX, activeLiquidity)
   if (tokenType === DEPOSIT_Y) return convertYToL(assets, pool.reserveY, activeLiquidity)
   return 0n
+}
+
+// Borrow events store post-fee assets, so principal must be recovered by inversion.
+// Returns undefined (never a nearest fit) when no integer solves the equation.
+export function splitLendingFee(
+  amount: bigint,
+): { principal: bigint; lendingFee: bigint } | undefined {
+  const principal = (amount * BIPS) / (BIPS + INITIAL_LENDING_FEE_BIPS)
+  const lendingFee = mulDivCeil(principal, INITIAL_LENDING_FEE_BIPS, BIPS)
+  return principal + lendingFee === amount ? { principal, lendingFee } : undefined
 }

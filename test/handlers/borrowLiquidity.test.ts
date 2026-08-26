@@ -106,6 +106,36 @@ describe('borrowLiquidity handlers', () => {
     expect(repay.amount).toBe(200n)
   })
 
+  // Same bad-debt writeoff rule as borrow.test.ts, on the liquidity side.
+  it('RepayLiquidity with the pair as sender skips counters but keeps the entity', async () => {
+    const indexer = createTestIndexer()
+    seed(indexer)
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'ERC20DebtLiquidity',
+              event: 'RepayLiquidity',
+              srcAddress: DEBT_L,
+              logIndex: 0,
+              block: { number: 11, timestamp: 110 },
+              transaction: { hash: '0xrlb', from: TO },
+              params: { sender: POOL, onBehalfOf: TO, assets: 200n, shares: 190n },
+            },
+          ],
+        },
+      },
+    })
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    expect(pool.repayCount).toBe(0)
+    expect(pool.txCount).toBe(0)
+    const position = await indexer.Position.getOrThrow(POSITION_ID)
+    expect(position.repayCount).toBe(0)
+    const repay = await indexer.Repay.getOrThrow(getEventId(CHAIN, '0xrlb', 0))
+    expect(repay.amount).toBe(200n)
+  })
+
   it('Transfer skips zero-value transfers (returns early)', async () => {
     const indexer = createTestIndexer()
     seed(indexer)

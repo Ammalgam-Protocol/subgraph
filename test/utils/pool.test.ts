@@ -30,6 +30,21 @@ describe('pool utils', () => {
     expect(pool.tokenYPrice.toString()).toBe('0')
     expect(pool.volumeTokenX.toString()).toBe('0')
     expect(pool.volumeTokenY.toString()).toBe('0')
+    expect(pool.swapFeesTokenX.toString()).toBe('0')
+    expect(pool.swapFeesTokenY.toString()).toBe('0')
+    expect(pool.protocolFeesTokenX.toString()).toBe('0')
+    expect(pool.protocolFeesTokenY.toString()).toBe('0')
+    expect(pool.protocolFeesTokenL.toString()).toBe('0')
+    expect(pool.lendingFeesTokenX.toString()).toBe('0')
+    expect(pool.lendingFeesTokenY.toString()).toBe('0')
+    expect(pool.lendingFeesTokenL.toString()).toBe('0')
+    expect(pool.penaltiesAccrued.toString()).toBe('0')
+  })
+
+  it('createDefaultPool starts reference reserves at zero', () => {
+    const pool = createDefaultPool('11155111-0xpool', '11155111-0xx', '11155111-0xy', 'X-Y', 1n, 2n)
+    expect(pool.referenceReserveX).toBe(0n)
+    expect(pool.referenceReserveY).toBe(0n)
   })
 })
 

@@ -108,4 +108,35 @@ describe('depositLiquidity handlers', () => {
     expect(withdraw.amount).toBe(200n)
     expect(withdraw.shares).toBe(190n)
   })
+
+  it('Burn to the pair is a bad debt writeoff and skips the counters', async () => {
+    const indexer = createTestIndexer()
+    seed(indexer)
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'ERC20DepositLiquidity',
+              event: 'Burn',
+              srcAddress: LEND_L,
+              logIndex: 0,
+              block: { number: 13, timestamp: 130 },
+              transaction: { hash: '0xbdl', from: SENDER },
+              // ERC20LiquidityToken.ownerBurn passes the sender through, so the liquidator
+              // stays in `sender` and only `to` identifies the writeoff.
+              params: { sender: SENDER, to: POOL, assets: 20n, shares: 18n },
+            },
+          ],
+        },
+      },
+    })
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    expect(pool.withdrawCount).toBe(0)
+    expect(pool.txCount).toBe(0)
+    const pairPosition = await indexer.Position.getOrThrow(getPositionId(POOL_ID, POOL_ID))
+    expect(pairPosition.withdrawCount).toBe(0)
+    const withdraw = await indexer.Withdraw.getOrThrow(getEventId(CHAIN, '0xbdl', 0))
+    expect(withdraw.amount).toBe(20n)
+  })
 })

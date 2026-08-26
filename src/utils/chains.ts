@@ -12,6 +12,10 @@ export interface ChainConfig {
   tokenOverrides: StaticTokenDefinition[]
   poolsToSkip: string[]
   nativeTokenDetails: { symbol: string; name: string; decimals: number }
+  // Archive eth_call budget per second for effects on this chain. Config rather than an
+  // ENVIO_ env var so it survives a redeploy. 10/s fits inside a 300 CU/s provider tier
+  // (eth_call is ~26 CU on Alchemy); raise it only after measuring the configured endpoint.
+  rpcCallsPerSecond: number
 }
 
 // All addresses must be lowercase
@@ -35,6 +39,7 @@ const CHAIN_CONFIGS: Record<number, ChainConfig> = {
     tokenOverrides: [],
     poolsToSkip: [],
     nativeTokenDetails: { symbol: 'ETH', name: 'Ethereum', decimals: 18 },
+    rpcCallsPerSecond: 10,
   },
   1: {
     // Ethereum Mainnet
@@ -52,8 +57,11 @@ const CHAIN_CONFIGS: Record<number, ChainConfig> = {
     tokenOverrides: [],
     poolsToSkip: [],
     nativeTokenDetails: { symbol: 'ETH', name: 'Ethereum', decimals: 18 },
+    rpcCallsPerSecond: 10,
   },
 }
+
+export const SUPPORTED_CHAIN_IDS: number[] = Object.keys(CHAIN_CONFIGS).map(Number)
 
 export function getChainConfig(chainId: number): ChainConfig {
   const config = CHAIN_CONFIGS[chainId]

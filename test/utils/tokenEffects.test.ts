@@ -17,6 +17,7 @@ const config: ChainConfig = {
   tokenOverrides: [{ address: OVERRIDE, symbol: 'OVR', name: 'Override Token', decimals: 8 }],
   poolsToSkip: [],
   nativeTokenDetails: { symbol: 'ETH', name: 'Ethereum', decimals: 18 },
+  rpcCallsPerSecond: 10,
 }
 
 const okClient = {

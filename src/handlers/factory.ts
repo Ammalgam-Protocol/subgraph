@@ -36,11 +36,9 @@ async function getOrCreateToken(context: EvmOnEventContext, chainId: number, add
   return createDefaultToken(id, metadata)
 }
 
-// LendingTokensCreated and PairCreated are emitted in the same createPair tx.
-// Each LendingToken stores its pool_id, so Pool.lendingTokens is resolved as a
-// @derivedFrom reverse lookup (schema.graphql) — no cross-event hand-off or
-// module-level state is needed, and the relation works regardless of event order
-// because it reads the persisted LendingToken rows, not a same-batch Pool shell.
+// Pool.lendingTokens is a @derivedFrom reverse lookup off LendingToken.pool_id, so no
+// cross-event hand-off or module-level state is needed: it reads persisted LendingToken
+// rows, not a same-batch Pool shell, and holds regardless of event order.
 indexer.onEvent(
   { contract: 'AmmalgamFactory', event: 'LendingTokensCreated' },
   async ({ event, context }) => {
@@ -54,7 +52,7 @@ indexer.onEvent(
       { address: event.params.borrowY, type: BORROW_Y },
     ]
 
-    // Independent metadata reads — fetch in parallel (handlers run twice; preload warms the cache).
+    // The six reads are independent, and the preload run warms the effect cache for the second pass.
     const resolved = await Promise.all(
       tokenAddresses.map(async ({ address, type }) => ({
         address,
@@ -86,7 +84,6 @@ indexer.onEvent(
     const tokenXAddress = event.params.tokenX
     const tokenYAddress = event.params.tokenY
 
-    // Independent token reads — fetch/create in parallel.
     const [tokenX, tokenY] = await Promise.all([
       getOrCreateToken(context, event.chainId, tokenXAddress),
       getOrCreateToken(context, event.chainId, tokenYAddress),

@@ -1,9 +1,9 @@
 import { createEffect, S } from 'envio'
-import { type Chain, createPublicClient, http, parseAbi } from 'viem'
-import { mainnet, sepolia } from 'viem/chains'
+import { parseAbi } from 'viem'
 
 import { type ChainConfig, getChainConfig } from './chains'
 import { ADDRESS_ZERO } from './constants'
+import { getClient } from './rpcClient'
 
 const ERC20_ABI = parseAbi([
   'function symbol() view returns (string)',
@@ -11,20 +11,6 @@ const ERC20_ABI = parseAbi([
   'function decimals() view returns (uint8)',
 ])
 
-// viem chain per supported chainId: keep in sync with chains.ts CHAIN_CONFIGS.
-// The chain object determines the multicall3 address and EIP-1559 assumptions used.
-const VIEM_CHAINS: Record<number, Chain> = {
-  11155111: sepolia,
-  1: mainnet,
-}
-
-// Public RPC URLs for each chain to fetch token metadata.
-const PUBLIC_RPC_URLS: Record<number, string> = {
-  11155111: 'https://ethereum-sepolia-rpc.publicnode.com',
-  1: 'https://ethereum-rpc.publicnode.com',
-}
-
-// `viem` client type for read-only operations.
 type ReadOnlyClient = {
   readContract: (args: {
     address: `0x${string}`
@@ -32,31 +18,6 @@ type ReadOnlyClient = {
     functionName: 'symbol' | 'name' | 'decimals'
   }) => Promise<unknown>
 }
-
-const clients: Record<number, ReturnType<typeof createPublicClient>> = {}
-// v8 ignore: only invoked from the effect wrappers, which run inside the Envio
-// worker thread (not observable by v8 coverage). Exercised by factory.test.ts.
-/* v8 ignore start */
-function getClient(chainId: number) {
-  if (!clients[chainId]) {
-    const chain = VIEM_CHAINS[chainId]
-    if (!chain) throw new Error(`Unsupported chain for RPC client: ${chainId}`)
-    // ENVIO_ prefix is mandatory: the hosted service only exposes env vars that
-    // ENVIO_RPC_RETRY_COUNT overrides viem's retry count (default 3)
-    const retryEnv = process.env.ENVIO_RPC_RETRY_COUNT
-    const rpcUrl = process.env[`ENVIO_RPC_URL_${chainId}`] ?? PUBLIC_RPC_URLS[chainId]
-    clients[chainId] = createPublicClient({
-      chain,
-      transport: http(
-        rpcUrl,
-        retryEnv !== undefined ? { retryCount: Number(retryEnv) } : undefined,
-      ),
-      batch: { multicall: true },
-    })
-  }
-  return clients[chainId]
-}
-/* v8 ignore stop */
 
 function findOverride(address: string, config: ChainConfig) {
   return config.tokenOverrides.find((t) => t.address.toLowerCase() === address.toLowerCase())
@@ -115,7 +76,7 @@ export async function resolveTokenDecimals(
       functionName: 'decimals',
     })
     const decimals = Number(result)
-    // Return 0 if the decimals value is >= 255, as this is an invalid value.
+    // 255 or more is not a real token scale; treat it as a failed read.
     return decimals < 255 ? decimals : 0
   } catch {
     return 0
@@ -129,7 +90,7 @@ function parseInput(input: string): { chainId: number; address: string } {
   return { chainId: Number(chainIdStr), address }
 }
 
-// Single batched metadata effect: one effect call per token resolves symbol, name and decimals together.
+// Batched: one effect call per token instead of three separate reads.
 export const fetchTokenMetadata = createEffect(
   {
     name: 'fetchTokenMetadata',
