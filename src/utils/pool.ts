@@ -33,10 +33,21 @@ export function createDefaultPool(
     liquidateCount: 0,
     interestAccruedCount: 0,
     burnBadDebtCount: 0,
-    volumeTokenX: ZERO_BD,
-    volumeTokenY: ZERO_BD,
+    volumeTokenX: ZERO_BI,
+    volumeTokenY: ZERO_BI,
+    swapFeesTokenX: ZERO_BI,
+    swapFeesTokenY: ZERO_BI,
+    protocolFeesTokenX: ZERO_BI,
+    protocolFeesTokenY: ZERO_BI,
+    protocolFeesTokenL: ZERO_BI,
+    lendingFeesTokenX: ZERO_BI,
+    lendingFeesTokenY: ZERO_BI,
+    lendingFeesTokenL: ZERO_BI,
+    penaltiesAccrued: ZERO_BI,
     positionCount: 0,
     externalLiquidity: ZERO_BI,
+    referenceReserveX: ZERO_BI,
+    referenceReserveY: ZERO_BI,
   }
 }
 

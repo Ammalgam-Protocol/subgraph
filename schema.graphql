@@ -5,7 +5,7 @@ type Token {
   decimals: Int!
   poolCount: Int!
   txCount: Int!
-  volume: BigDecimal!
+  volume: BigInt!
   whitelistPoolIds: [String!]!
 }
 
@@ -42,10 +42,21 @@ type Pool {
   liquidateCount: Int!
   interestAccruedCount: Int!
   burnBadDebtCount: Int!
-  volumeTokenX: BigDecimal!
-  volumeTokenY: BigDecimal!
+  volumeTokenX: BigInt!
+  volumeTokenY: BigInt!
+  swapFeesTokenX: BigInt!
+  swapFeesTokenY: BigInt!
+  protocolFeesTokenX: BigInt!
+  protocolFeesTokenY: BigInt!
+  protocolFeesTokenL: BigInt!
+  lendingFeesTokenX: BigInt!
+  lendingFeesTokenY: BigInt!
+  lendingFeesTokenL: BigInt!
+  penaltiesAccrued: BigInt!
   positionCount: Int!
   externalLiquidity: BigInt!
+  referenceReserveX: BigInt!
+  referenceReserveY: BigInt!
   lendingTokens: [LendingToken!]! @derivedFrom(field: "pool")
   positions: [Position!]! @derivedFrom(field: "pool")
   deposits: [Deposit!]! @derivedFrom(field: "pool")
@@ -119,6 +130,7 @@ type Deposit {
   asset: LendingToken!
   amount: BigInt!
   shares: BigInt
+  isProtocolFee: Boolean!
 }
 
 type Withdraw {
@@ -149,6 +161,8 @@ type Borrow {
   asset: LendingToken!
   amount: BigInt!
   shares: BigInt!
+  lendingFee: BigInt
+  isPenalty: Boolean!
 }
 
 type Repay {
@@ -198,6 +212,12 @@ type Swap {
   amountYIn: BigInt!
   amountXOut: BigInt!
   amountYOut: BigInt!
+  referenceReserveX: BigInt
+  referenceReserveY: BigInt
+  feeBipsQ64X: BigInt
+  feeBipsQ64Y: BigInt
+  feeAmountX: BigInt
+  feeAmountY: BigInt
 }
 
 type Sync {
@@ -209,6 +229,8 @@ type Sync {
   pool: Pool!
   reserveX: BigInt!
   reserveY: BigInt!
+  referenceReserveX: BigInt
+  referenceReserveY: BigInt
 }
 
 type Liquidate {

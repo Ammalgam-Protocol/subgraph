@@ -1,4 +1,4 @@
-import { BigDecimal, createTestIndexer } from 'envio'
+import { createTestIndexer } from 'envio'
 import { describe, expect, it } from 'vitest'
 
 import { getEventId, scopedId } from '../../src/utils/id'
@@ -31,7 +31,7 @@ function seed(indexer: ReturnType<typeof createTestIndexer>) {
     decimals: 18,
     poolCount: 1,
     txCount: 0,
-    volume: new BigDecimal('0'),
+    volume: 0n,
     whitelistPoolIds: [],
   })
   indexer.Token.set({
@@ -41,7 +41,7 @@ function seed(indexer: ReturnType<typeof createTestIndexer>) {
     decimals: 18,
     poolCount: 1,
     txCount: 0,
-    volume: new BigDecimal('0'),
+    volume: 0n,
     whitelistPoolIds: [],
   })
   indexer.Pool.set({ ...createDefaultPool(POOL_ID, TX_ID, TY_ID, 'TKX-TKY', 1n, 1n) })

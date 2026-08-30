@@ -8,10 +8,12 @@ import {
   exponentToBigDecimal,
   isqrt,
   mulDiv,
+  mulDivCeil,
   ONE_BD,
   principalContribution,
   reserveAdjustment,
   safeDiv,
+  splitLendingFee,
   toAssets,
   ZERO_BD,
 } from '../../src/utils/math'
@@ -66,6 +68,13 @@ describe('mulDiv', () => {
   it('returns 0 on zero denominator', () => expect(mulDiv(7n, 3n, 0n)).toBe(0n))
 })
 
+describe('mulDivCeil', () => {
+  it('rounds up on a remainder', () => expect(mulDivCeil(7n, 3n, 2n)).toBe(11n))
+  it('leaves an exact quotient alone', () => expect(mulDivCeil(7n, 3n, 3n)).toBe(7n))
+  it('returns 0 for a zero product', () => expect(mulDivCeil(0n, 3n, 2n)).toBe(0n))
+  it('returns 0 on zero denominator', () => expect(mulDivCeil(7n, 3n, 0n)).toBe(0n))
+})
+
 describe('toAssets', () => {
   it('returns shares 1:1 when totalShares is 0', () => expect(toAssets(5n, 100n, 0n)).toBe(5n))
   it('converts by rate with floor', () => expect(toAssets(3n, 10n, 4n)).toBe(7n))
@@ -114,4 +123,25 @@ describe('principalContribution', () => {
   it('BORROW_Y is 0 (preserved quirk)', () => expect(principalContribution(5, 100n, pool)).toBe(0n))
   it('DEPOSIT_X with zero reserve returns 0', () =>
     expect(principalContribution(1, 100n, { ...pool, reserveX: 0n })).toBe(0n))
+})
+
+describe('splitLendingFee', () => {
+  it('recovers principal and fee from a post-fee amount', () => {
+    expect(splitLendingFee(100050n)).toEqual({ principal: 100000n, lendingFee: 50n })
+  })
+
+  it('rounds the fee up on non-exact multiples', () => {
+    // principal 99: ceil(99 * 5 / 10000) = 1, so amount 100 splits as 99 + 1.
+    expect(splitLendingFee(100n)).toEqual({ principal: 99n, lendingFee: 1n })
+    expect(splitLendingFee(2n)).toEqual({ principal: 1n, lendingFee: 1n })
+  })
+
+  it('handles zero', () => {
+    expect(splitLendingFee(0n)).toEqual({ principal: 0n, lendingFee: 0n })
+  })
+
+  it('returns undefined when no integer principal solves the equation', () => {
+    // amount 1 is unreachable: principal 0 gives 0, principal 1 gives 2.
+    expect(splitLendingFee(1n)).toBeUndefined()
+  })
 })
