@@ -30,21 +30,36 @@ describe('pool utils', () => {
     expect(pool.tokenYPrice.toString()).toBe('0')
     expect(pool.volumeTokenX.toString()).toBe('0')
     expect(pool.volumeTokenY.toString()).toBe('0')
-    expect(pool.swapFeesTokenX.toString()).toBe('0')
-    expect(pool.swapFeesTokenY.toString()).toBe('0')
-    expect(pool.protocolFeesTokenX.toString()).toBe('0')
-    expect(pool.protocolFeesTokenY.toString()).toBe('0')
-    expect(pool.protocolFeesTokenL.toString()).toBe('0')
-    expect(pool.lendingFeesTokenX.toString()).toBe('0')
-    expect(pool.lendingFeesTokenY.toString()).toBe('0')
-    expect(pool.lendingFeesTokenL.toString()).toBe('0')
-    expect(pool.penaltiesAccrued.toString()).toBe('0')
-  })
-
-  it('createDefaultPool starts reference reserves at zero', () => {
-    const pool = createDefaultPool('11155111-0xpool', '11155111-0xx', '11155111-0xy', 'X-Y', 1n, 2n)
-    expect(pool.referenceReserveX).toBe(0n)
-    expect(pool.referenceReserveY).toBe(0n)
+    const FEE_COLUMNS = [
+      'swapFeesTokenX',
+      'swapFeesTokenY',
+      'swapFeesTokenL',
+      'grossInterestTokenX',
+      'grossInterestTokenY',
+      'grossInterestTokenL',
+      'grossInterestTokenLAsX',
+      'grossInterestTokenLAsY',
+      'protocolInterestTokenX',
+      'protocolInterestTokenY',
+      'protocolInterestTokenL',
+      'protocolInterestTokenLAsX',
+      'protocolInterestTokenLAsY',
+      'lpInterestTokenL',
+      'lpInterestTokenLAsX',
+      'lpInterestTokenLAsY',
+      'protocolFeesTokenX',
+      'protocolFeesTokenY',
+      'protocolFeesTokenL',
+      'protocolFeesTokenLAsX',
+      'protocolFeesTokenLAsY',
+      'penaltiesTokenL',
+      'penaltiesTokenLAsX',
+      'penaltiesTokenLAsY',
+    ] as const
+    expect(FEE_COLUMNS).toHaveLength(24)
+    for (const column of FEE_COLUMNS) {
+      expect(pool[column].toString()).toBe('0')
+    }
   })
 })
 

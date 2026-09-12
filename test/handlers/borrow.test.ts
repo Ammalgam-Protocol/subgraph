@@ -24,6 +24,8 @@ function seed(indexer: ReturnType<typeof createTestIndexer>) {
     decimals: 18,
     pool_id: POOL_ID,
     tokenType: 1, // DEPOSIT_X index -> principal uses convertXToL
+    pendingAssets: undefined,
+    pendingShares: undefined,
   })
   const pool = createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n)
   indexer.Pool.set({ ...pool, reserveX: 1000n, totalAssets: [1000n, 0n, 0n, 0n, 0n, 0n] })

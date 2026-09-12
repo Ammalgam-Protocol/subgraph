@@ -18,5 +18,4 @@ paths:
 - Token `decimals >= 255` is treated as a failed read and coerced to `0`.
 - `getClient` (`rpcClient.ts`) / the effect wrappers run in the Envio worker thread, invisible to v8
   coverage: they carry `/* v8 ignore */` and are exercised end-to-end by
-  `test/handlers/factory.test.ts` (token metadata), `test/handlers/swapFees.test.ts` and
-  `test/handlers/referenceReserves.test.ts` (reference reserves).
+  `test/handlers/factory.test.ts` (token metadata).

@@ -1,15 +1,7 @@
 import type { EvmOnEventContext, LendingToken, Pool } from 'envio'
 
 import { addAt, updateAt } from '../utils/array'
-import {
-  ADDRESS_ZERO,
-  BORROW_L,
-  BORROW_X,
-  BORROW_Y,
-  DEPOSIT_L,
-  DEPOSIT_X,
-  DEPOSIT_Y,
-} from '../utils/constants'
+import { ADDRESS_ZERO, BORROW_L, DEPOSIT_L, DEPOSIT_X, DEPOSIT_Y } from '../utils/constants'
 import { type EventHeaderSource, lendingEventFields, transferEventFields } from '../utils/events'
 import { getPositionId, scopedId } from '../utils/id'
 import { principalContribution, splitLendingFee, toAssets } from '../utils/math'
@@ -298,23 +290,14 @@ type FeeField =
   | 'protocolFeesTokenX'
   | 'protocolFeesTokenY'
   | 'protocolFeesTokenL'
-  | 'lendingFeesTokenX'
-  | 'lendingFeesTokenY'
-  | 'lendingFeesTokenL'
-  | 'penaltiesAccrued'
+  | 'penaltiesTokenL'
 
-// Partial: a deposit-side token never has a lending-fee column and vice versa, so a miss is a
+// Partial: a deposit-side token never has a protocol-fee column and vice versa, so a miss is a
 // mis-wired lendingToken. Bucketing it into L would silently corrupt the aggregate.
 const PROTOCOL_FEE_FIELDS: Partial<Record<number, FeeField>> = {
   [DEPOSIT_L]: 'protocolFeesTokenL',
   [DEPOSIT_X]: 'protocolFeesTokenX',
   [DEPOSIT_Y]: 'protocolFeesTokenY',
-}
-
-const LENDING_FEE_FIELDS: Partial<Record<number, FeeField>> = {
-  [BORROW_L]: 'lendingFeesTokenL',
-  [BORROW_X]: 'lendingFeesTokenX',
-  [BORROW_Y]: 'lendingFeesTokenY',
 }
 
 // Additive aggregation only: fee mints already flow through the Transfer spine,
@@ -337,23 +320,9 @@ function accrueProtocolFee(
   accrueFee(context, pool, field, amount)
 }
 
-function accrueLendingFee(
-  context: EvmOnEventContext,
-  pool: Pool,
-  lendingToken: { tokenType: number },
-  lendingFee: bigint,
-) {
-  const field = LENDING_FEE_FIELDS[lendingToken.tokenType]
-  if (!field) {
-    context.log.warn(`no lending fee column for tokenType ${lendingToken.tokenType}`)
-    return
-  }
-  accrueFee(context, pool, field, lendingFee)
-}
-
 // Saturation penalties are minted as BORROW_L debt with the pair as `sender`.
 function accruePenalty(context: EvmOnEventContext, pool: Pool, amount: bigint) {
-  accrueFee(context, pool, 'penaltiesAccrued', amount)
+  accrueFee(context, pool, 'penaltiesTokenL', amount)
 }
 
 type LendingActionEvent = EventHeaderSource & {
@@ -441,9 +410,7 @@ export async function handleBorrowAction(
   const split = isPenalty ? undefined : splitLendingFee(event.params.assets)
   if (isPenalty) {
     accruePenalty(context, updatedPool, event.params.assets)
-  } else if (split) {
-    accrueLendingFee(context, updatedPool, lendingToken, split.lendingFee)
-  } else {
+  } else if (!split) {
     // INITIAL_LENDING_FEE_BIPS changed upstream; null beats a wrong number.
     context.log.warn(
       `lending fee inversion failed for borrow of ${event.params.assets} on asset ${lendingToken.id}`,

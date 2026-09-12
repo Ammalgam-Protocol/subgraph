@@ -33,8 +33,3 @@ export const MANUAL_TRANSFER_TX = {
   receiver: '0x39969480efdd7168d5fb7ac6f8c7897f830cb424',
   shares: 186093000n,
 }
-
-// Same window as SWAP_SYNC: the bootstrap mint that seeds referenceReserveX/Y lands in it, and
-// its Sync carries the observation. Needs an archive ENVIO_RPC_URL_11155111: the reference is
-// read with eth_call at a historical block.
-export const REFERENCE_RESERVE_ACTIVITY = SWAP_SYNC

@@ -16,6 +16,8 @@ type LendingToken {
   decimals: Int!
   pool: Pool!
   tokenType: Int!
+  pendingAssets: BigInt
+  pendingShares: BigInt
 }
 
 type Pool {
@@ -46,17 +48,31 @@ type Pool {
   volumeTokenY: BigInt!
   swapFeesTokenX: BigInt!
   swapFeesTokenY: BigInt!
+  swapFeesTokenL: BigInt!
+  grossInterestTokenX: BigInt!
+  grossInterestTokenY: BigInt!
+  grossInterestTokenL: BigInt!
+  grossInterestTokenLAsX: BigInt!
+  grossInterestTokenLAsY: BigInt!
+  protocolInterestTokenX: BigInt!
+  protocolInterestTokenY: BigInt!
+  protocolInterestTokenL: BigInt!
+  protocolInterestTokenLAsX: BigInt!
+  protocolInterestTokenLAsY: BigInt!
+  lpInterestTokenL: BigInt!
+  lpInterestTokenLAsX: BigInt!
+  lpInterestTokenLAsY: BigInt!
   protocolFeesTokenX: BigInt!
   protocolFeesTokenY: BigInt!
   protocolFeesTokenL: BigInt!
-  lendingFeesTokenX: BigInt!
-  lendingFeesTokenY: BigInt!
-  lendingFeesTokenL: BigInt!
-  penaltiesAccrued: BigInt!
+  protocolFeesTokenLAsX: BigInt!
+  protocolFeesTokenLAsY: BigInt!
+  penaltiesTokenL: BigInt!
+  penaltiesTokenLAsX: BigInt!
+  penaltiesTokenLAsY: BigInt!
   positionCount: Int!
   externalLiquidity: BigInt!
-  referenceReserveX: BigInt!
-  referenceReserveY: BigInt!
+  dayData: [PoolDayData!]! @derivedFrom(field: "pool")
   lendingTokens: [LendingToken!]! @derivedFrom(field: "pool")
   positions: [Position!]! @derivedFrom(field: "pool")
   deposits: [Deposit!]! @derivedFrom(field: "pool")
@@ -69,6 +85,40 @@ type Pool {
   liquidates: [Liquidate!]! @derivedFrom(field: "pool")
   interestAccruals: [InterestAccrued!]! @derivedFrom(field: "pool")
   burnBadDebts: [BurnBadDebt!]! @derivedFrom(field: "pool")
+}
+
+type PoolDayData {
+  id: ID! # `${poolId}-${date}`
+  pool: Pool!
+  date: Int! @index # UTC day start, unix seconds
+  volumeTokenX: BigInt!
+  volumeTokenY: BigInt!
+  txCount: Int!
+  swapCount: Int!
+  swapFeesTokenX: BigInt!
+  swapFeesTokenY: BigInt!
+  swapFeesTokenL: BigInt!
+  grossInterestTokenX: BigInt!
+  grossInterestTokenY: BigInt!
+  grossInterestTokenL: BigInt!
+  grossInterestTokenLAsX: BigInt!
+  grossInterestTokenLAsY: BigInt!
+  protocolInterestTokenX: BigInt!
+  protocolInterestTokenY: BigInt!
+  protocolInterestTokenL: BigInt!
+  protocolInterestTokenLAsX: BigInt!
+  protocolInterestTokenLAsY: BigInt!
+  lpInterestTokenL: BigInt!
+  lpInterestTokenLAsX: BigInt!
+  lpInterestTokenLAsY: BigInt!
+  protocolFeesTokenX: BigInt!
+  protocolFeesTokenY: BigInt!
+  protocolFeesTokenL: BigInt!
+  protocolFeesTokenLAsX: BigInt!
+  protocolFeesTokenLAsY: BigInt!
+  penaltiesTokenL: BigInt!
+  penaltiesTokenLAsX: BigInt!
+  penaltiesTokenLAsY: BigInt!
 }
 
 type User {
@@ -212,12 +262,9 @@ type Swap {
   amountYIn: BigInt!
   amountXOut: BigInt!
   amountYOut: BigInt!
-  referenceReserveX: BigInt
-  referenceReserveY: BigInt
-  feeBipsQ64X: BigInt
-  feeBipsQ64Y: BigInt
-  feeAmountX: BigInt
-  feeAmountY: BigInt
+  feeL: BigInt!
+  feeAmountX: BigInt!
+  feeAmountY: BigInt!
 }
 
 type Sync {
@@ -229,8 +276,6 @@ type Sync {
   pool: Pool!
   reserveX: BigInt!
   reserveY: BigInt!
-  referenceReserveX: BigInt
-  referenceReserveY: BigInt
 }
 
 type Liquidate {
@@ -266,6 +311,10 @@ type InterestAccrued {
   borrowLAssets: BigInt!
   borrowXAssets: BigInt!
   borrowYAssets: BigInt!
+  grossInterestX: BigInt!
+  grossInterestY: BigInt!
+  grossInterestL: BigInt!
+  lpInterestL: BigInt!
 }
 
 type BurnBadDebt {

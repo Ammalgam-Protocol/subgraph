@@ -23,6 +23,8 @@ function seed(indexer: ReturnType<typeof createTestIndexer>) {
     decimals: 18,
     pool_id: POOL_ID,
     tokenType: 0, // DEPOSIT_L
+    pendingAssets: undefined,
+    pendingShares: undefined,
   })
   indexer.Pool.set({ ...createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n) })
 }

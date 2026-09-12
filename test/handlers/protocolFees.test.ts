@@ -25,6 +25,8 @@ function seed(indexer: ReturnType<typeof createTestIndexer>) {
     decimals: 18,
     pool_id: POOL_ID,
     tokenType: 1, // DEPOSIT_X
+    pendingAssets: undefined,
+    pendingShares: undefined,
   })
   indexer.LendingToken.set({
     id: LEND_Y_ID,
@@ -33,6 +35,8 @@ function seed(indexer: ReturnType<typeof createTestIndexer>) {
     decimals: 18,
     pool_id: POOL_ID,
     tokenType: 2, // DEPOSIT_Y
+    pendingAssets: undefined,
+    pendingShares: undefined,
   })
   indexer.LendingToken.set({
     id: LEND_L_ID,
@@ -41,6 +45,8 @@ function seed(indexer: ReturnType<typeof createTestIndexer>) {
     decimals: 18,
     pool_id: POOL_ID,
     tokenType: 0, // DEPOSIT_L
+    pendingAssets: undefined,
+    pendingShares: undefined,
   })
   indexer.Pool.set(createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n))
 }

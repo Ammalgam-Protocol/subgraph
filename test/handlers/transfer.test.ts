@@ -27,6 +27,8 @@ function seed(
     decimals: 18,
     pool_id: POOL_ID,
     tokenType: 1,
+    pendingAssets: undefined,
+    pendingShares: undefined,
   })
   const pool = createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n)
   indexer.Pool.set({

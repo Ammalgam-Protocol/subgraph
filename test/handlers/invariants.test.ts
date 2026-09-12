@@ -11,7 +11,6 @@ const TX: `0x${string}` = '0xaaa0000000000000000000000000000000000001'
 const TY: `0x${string}` = '0xbbb0000000000000000000000000000000000002'
 const LEND_X: `0x${string}` = '0x00000000000000000000000000000000000000d1'
 const LEND_BX: `0x${string}` = '0x00000000000000000000000000000000000000d4'
-const LEND_L: `0x${string}` = '0x00000000000000000000000000000000000000d0'
 const LEND_BL: `0x${string}` = '0x00000000000000000000000000000000000000d3'
 const ALICE: `0x${string}` = '0xc0de000000000000000000000000000000000001'
 const BOB: `0x${string}` = '0xc0de000000000000000000000000000000000002'
@@ -23,7 +22,6 @@ const TX_ID = scopedId(CHAIN, TX)
 const TY_ID = scopedId(CHAIN, TY)
 const LEND_X_ID = scopedId(CHAIN, LEND_X)
 const LEND_BX_ID = scopedId(CHAIN, LEND_BX)
-const LEND_L_ID = scopedId(CHAIN, LEND_L)
 const LEND_BL_ID = scopedId(CHAIN, LEND_BL)
 const ALICE_ID = scopedId(CHAIN, ALICE)
 const BOB_ID = scopedId(CHAIN, BOB)
@@ -41,6 +39,8 @@ function seedLendingToken(
     decimals: 18,
     pool_id: poolId,
     tokenType,
+    pendingAssets: undefined,
+    pendingShares: undefined,
   })
 }
 
@@ -290,77 +290,7 @@ describe('cross-handler invariants and sequences', () => {
     expect(pool.protocolFeesTokenX.toString()).toBe('2000000000000000000')
   })
 
-  it('lendingFeesToken* never exceeds protocolFeesToken*', async () => {
-    const indexer = createTestIndexer()
-    seedLendingToken(indexer, LEND_X_ID, POOL_ID, 1)
-    seedLendingToken(indexer, LEND_BX_ID, POOL_ID, 4)
-    seedLendingToken(indexer, LEND_L_ID, POOL_ID, 0)
-    seedLendingToken(indexer, LEND_BL_ID, POOL_ID, 3)
-    seedPool(indexer)
-    // The penalty's raw 5e18 must not be treated as a borrow, or lendingFeesTokenL
-    // would exceed protocolFeesTokenL and invert the subset relation under test.
-    await indexer.process({
-      chains: {
-        11155111: {
-          simulate: [
-            {
-              contract: 'ERC4626Debt' as const,
-              event: 'Borrow' as const,
-              srcAddress: LEND_BX,
-              logIndex: 0,
-              block: { number: 10, timestamp: 100 },
-              transaction: { hash: '0xsub', from: ALICE },
-              params: { sender: ALICE, to: ALICE, assets: 2001000000000000000n, shares: 1n },
-            },
-            {
-              contract: 'ERC4626Deposit' as const,
-              event: 'Deposit' as const,
-              srcAddress: LEND_X,
-              logIndex: 1,
-              block: { number: 10, timestamp: 100 },
-              transaction: { hash: '0xsub', from: ALICE },
-              params: { sender: POOL, owner: FEE_TO, assets: 1000000000000000n, shares: 1n },
-            },
-            {
-              contract: 'ERC20DebtLiquidity' as const,
-              event: 'BorrowLiquidity' as const,
-              srcAddress: LEND_BL,
-              logIndex: 2,
-              block: { number: 10, timestamp: 100 },
-              transaction: { hash: '0xsub', from: ALICE },
-              params: { sender: ALICE, to: ALICE, assets: 2001000000000000000n, shares: 1n },
-            },
-            {
-              contract: 'ERC20DepositLiquidity' as const,
-              event: 'Mint' as const,
-              srcAddress: LEND_L,
-              logIndex: 3,
-              block: { number: 10, timestamp: 100 },
-              transaction: { hash: '0xsub', from: ALICE },
-              params: { sender: POOL, to: FEE_TO, assets: 2000000000000000n, shares: 1n },
-            },
-            {
-              contract: 'ERC20DebtLiquidity' as const,
-              event: 'BorrowLiquidity' as const,
-              srcAddress: LEND_BL,
-              logIndex: 4,
-              block: { number: 10, timestamp: 100 },
-              transaction: { hash: '0xsub', from: ALICE },
-              params: { sender: POOL, to: POOL, assets: 5000000000000000000n, shares: 1n },
-            },
-          ],
-        },
-      },
-    })
-    const pool = await indexer.Pool.getOrThrow(POOL_ID)
-    expect(pool.lendingFeesTokenX.toString()).toBe('1000000000000000')
-    expect(pool.lendingFeesTokenX <= pool.protocolFeesTokenX).toBe(true)
-    expect(pool.lendingFeesTokenL.toString()).toBe('1000000000000000')
-    expect(pool.protocolFeesTokenL.toString()).toBe('2000000000000000') // sanity: not vacuous
-    expect(pool.lendingFeesTokenL <= pool.protocolFeesTokenL).toBe(true)
-  })
-
-  it('penaltiesAccrued equals the raw sum of flagged Borrow amounts', async () => {
+  it('penaltiesTokenL equals the raw sum of flagged Borrow amounts', async () => {
     const indexer = createTestIndexer()
     seedLendingToken(indexer, LEND_BL_ID, POOL_ID, 3)
     seedPool(indexer)
@@ -391,7 +321,6 @@ describe('cross-handler invariants and sequences', () => {
       .filter((borrow) => borrow.isPenalty)
       .reduce((acc, borrow) => acc + borrow.amount, 0n)
     expect(flaggedSum).toBe(2000000000000000000n) // sanity: not vacuous
-    expect(pool.penaltiesAccrued.toString()).toBe('2000000000000000000')
-    expect(pool.lendingFeesTokenL.toString()).toBe('1000000000000000')
+    expect(pool.penaltiesTokenL.toString()).toBe('2000000000000000000')
   })
 })

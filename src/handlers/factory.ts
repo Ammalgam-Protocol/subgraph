@@ -69,6 +69,8 @@ indexer.onEvent(
         decimals: metadata.decimals,
         pool_id: pairId,
         tokenType,
+        pendingAssets: undefined,
+        pendingShares: undefined,
       })
     }
   },

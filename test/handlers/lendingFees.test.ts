@@ -28,6 +28,8 @@ function seed(indexer: ReturnType<typeof createTestIndexer>) {
     decimals: 18,
     pool_id: POOL_ID,
     tokenType: 4, // BORROW_X
+    pendingAssets: undefined,
+    pendingShares: undefined,
   })
   indexer.LendingToken.set({
     id: DEBT_L_ID,
@@ -36,12 +38,14 @@ function seed(indexer: ReturnType<typeof createTestIndexer>) {
     decimals: 18,
     pool_id: POOL_ID,
     tokenType: 3, // BORROW_L
+    pendingAssets: undefined,
+    pendingShares: undefined,
   })
   indexer.Pool.set(createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n))
 }
 
 describe('lending fee derivation', () => {
-  it('Borrow splits out the fee and accrues lendingFeesTokenX', async () => {
+  it('Borrow splits out the fee onto the row, with no pool-level accrual', async () => {
     const indexer = createTestIndexer()
     seed(indexer)
     await indexer.process({
@@ -65,13 +69,10 @@ describe('lending fee derivation', () => {
     expect(borrow.lendingFee).toBe(FEE)
     expect(borrow.isPenalty).toBe(false)
     const pool = await indexer.Pool.getOrThrow(POOL_ID)
-    expect(pool.lendingFeesTokenX.toString()).toBe('1000000000000000')
-    expect(pool.penaltiesAccrued.toString()).toBe('0')
-    expect(pool.lendingFeesTokenY.toString()).toBe('0')
-    expect(pool.lendingFeesTokenL.toString()).toBe('0')
+    expect(pool.penaltiesTokenL.toString()).toBe('0')
   })
 
-  it('BorrowLiquidity routes into lendingFeesTokenL', async () => {
+  it('BorrowLiquidity splits out the fee onto the row, with no pool-level accrual', async () => {
     const indexer = createTestIndexer()
     seed(indexer)
     await indexer.process({
@@ -95,9 +96,7 @@ describe('lending fee derivation', () => {
     expect(borrow.lendingFee).toBe(FEE)
     expect(borrow.isPenalty).toBe(false)
     const pool = await indexer.Pool.getOrThrow(POOL_ID)
-    expect(pool.lendingFeesTokenL.toString()).toBe('1000000000000000')
-    expect(pool.lendingFeesTokenX.toString()).toBe('0')
-    expect(pool.penaltiesAccrued.toString()).toBe('0')
+    expect(pool.penaltiesTokenL.toString()).toBe('0')
   })
 
   // Penalties reach this handler as pair-sender BorrowLiquidity with no 5-bip fee;
@@ -126,9 +125,7 @@ describe('lending fee derivation', () => {
     expect(borrow.isPenalty).toBe(true)
     expect(borrow.lendingFee).toBeUndefined()
     const pool = await indexer.Pool.getOrThrow(POOL_ID)
-    expect(pool.lendingFeesTokenL.toString()).toBe('0')
-    expect(pool.lendingFeesTokenX.toString()).toBe('0')
-    expect(pool.penaltiesAccrued.toString()).toBe('2001000000000000000')
+    expect(pool.penaltiesTokenL.toString()).toBe('2001000000000000000')
   })
 
   it('keeps a Position for the pair without counting the penalty as a borrow', async () => {
@@ -155,7 +152,7 @@ describe('lending fee derivation', () => {
     expect(pool.borrowCount).toBe(0)
     expect(pool.txCount).toBe(0)
     expect(pool.positionCount).toBe(1) // sanity: the Position is still written
-    expect(pool.penaltiesAccrued.toString()).toBe('2001000000000000000') // sanity: not vacuous
+    expect(pool.penaltiesTokenL.toString()).toBe('2001000000000000000') // sanity: not vacuous
 
     const position = await indexer.Position.getOrThrow(getPositionId(POOL_ID, POOL_ID))
     expect(position.borrowCount).toBe(0)
@@ -189,11 +186,10 @@ describe('lending fee derivation', () => {
     expect(borrow.isPenalty).toBe(false)
     expect(borrow.lendingFee).toBe(FEE)
     const pool = await indexer.Pool.getOrThrow(POOL_ID)
-    expect(pool.lendingFeesTokenX.toString()).toBe('1000000000000000')
-    expect(pool.penaltiesAccrued.toString()).toBe('0')
+    expect(pool.penaltiesTokenL.toString()).toBe('0')
   })
 
-  it('leaves lendingFee null and accrues nothing when no principal solves the fee equation', async () => {
+  it('leaves lendingFee null when no principal solves the fee equation', async () => {
     const indexer = createTestIndexer()
     seed(indexer)
     await indexer.process({
@@ -218,8 +214,6 @@ describe('lending fee derivation', () => {
     expect(borrow.lendingFee).toBeUndefined()
     expect(borrow.isPenalty).toBe(false)
     const pool = await indexer.Pool.getOrThrow(POOL_ID)
-    expect(pool.lendingFeesTokenX.toString()).toBe('0')
-    expect(pool.lendingFeesTokenL.toString()).toBe('0')
-    expect(pool.penaltiesAccrued.toString()).toBe('0')
+    expect(pool.penaltiesTokenL.toString()).toBe('0')
   })
 })
