@@ -1,4 +1,4 @@
-import type { EvmOnEventContext, LendingToken, Pool } from 'envio'
+import type { EvmOnEventContext, LendingToken, Pool, PoolDayData } from 'envio'
 
 import { addAt, updateAt } from '../utils/array'
 import {
@@ -6,6 +6,7 @@ import {
   BORROW_L,
   BORROW_X,
   BORROW_Y,
+  DAY_SECONDS,
   DEPOSIT_L,
   DEPOSIT_X,
   DEPOSIT_Y,
@@ -18,6 +19,7 @@ import {
   splitLendingFee,
   toAssets,
 } from '../utils/math'
+import { createDefaultPoolDayData } from '../utils/pool'
 import { createDefaultPosition } from '../utils/position'
 import { createDefaultUser } from '../utils/user'
 
@@ -352,23 +354,37 @@ const PROTOCOL_FEE_FIELDS: Partial<Record<number, FeeField>> = {
   [DEPOSIT_Y]: 'protocolFeesTokenY',
 }
 
-function accrueProtocolFee(
-  context: EvmOnEventContext,
-  pool: Pool,
-  lendingToken: { tokenType: number },
-  amount: bigint,
-): Pool {
-  const field = PROTOCOL_FEE_FIELDS[lendingToken.tokenType]
-  if (!field) {
-    context.log.warn(`no protocol fee column for tokenType ${lendingToken.tokenType}`)
-    return pool
+type PoolFeeDelta = Partial<Omit<PoolDayData, 'id' | 'pool_id' | 'date'>>
+
+function applyDelta<T extends PoolFeeDelta>(row: T, deltas: PoolFeeDelta): T {
+  const updated: Record<string, bigint | number> = { ...row }
+  for (const key of Object.keys(deltas) as (keyof PoolFeeDelta)[]) {
+    const delta = deltas[key]
+    if (delta === undefined) continue
+    const current = updated[key]
+    updated[key] =
+      typeof current === 'bigint' ? current + (delta as bigint) : current + (delta as number)
   }
-  return { ...pool, [field]: pool[field] + amount }
+  return updated as T
 }
 
-// Saturation penalties are minted as BORROW_L debt with the pair as `sender`.
-function accruePenalty(pool: Pool, amount: bigint): Pool {
-  return { ...pool, penaltiesTokenL: pool.penaltiesTokenL + amount }
+// Sole writer of fee/volume/count columns on Pool and its PoolDayData row
+export async function accrueFees(
+  context: EvmOnEventContext,
+  pool: Pool,
+  timestamp: number,
+  deltas: PoolFeeDelta,
+): Promise<Pool> {
+  const date = Math.floor(timestamp / DAY_SECONDS) * DAY_SECONDS
+  const dayId = `${pool.id}-${date}`
+  const dayData =
+    (await context.PoolDayData.get(dayId)) ?? createDefaultPoolDayData(dayId, pool.id, date)
+
+  const updatedPool = applyDelta(pool, deltas)
+  context.Pool.set(updatedPool)
+  context.PoolDayData.set(applyDelta(dayData, deltas))
+
+  return updatedPool
 }
 
 type LendingActionEvent = EventHeaderSource & {
@@ -410,7 +426,14 @@ export async function handleDepositAction(
   })
 
   if (isProtocolFee) {
-    updatedPool = accrueProtocolFee(context, updatedPool, lendingToken, event.params.assets)
+    const field = PROTOCOL_FEE_FIELDS[lendingToken.tokenType]
+    if (field) {
+      updatedPool = await accrueFees(context, updatedPool, event.block.timestamp, {
+        [field]: event.params.assets,
+      })
+    } else {
+      context.log.warn(`no protocol fee column for tokenType ${lendingToken.tokenType}`)
+    }
 
     // DEPOSIT_L fee mints dilute shares without adding assets, so we back out the fee.
     if (lendingToken.tokenType === DEPOSIT_L) {
@@ -423,8 +446,8 @@ export async function handleDepositAction(
           DEPOSIT_L,
         ),
       }
+      context.Pool.set(updatedPool)
     }
-    context.Pool.set(updatedPool)
   }
 
   context.LendingToken.set({
@@ -483,7 +506,9 @@ export async function handleBorrowAction(
 
   const split = isPenalty ? undefined : splitLendingFee(event.params.assets)
   if (isPenalty) {
-    context.Pool.set(accruePenalty(updatedPool, event.params.assets))
+    await accrueFees(context, updatedPool, event.block.timestamp, {
+      penaltiesTokenL: event.params.assets,
+    })
   } else if (!split) {
     // INITIAL_LENDING_FEE_BIPS changed upstream; null beats a wrong number.
     context.log.warn(

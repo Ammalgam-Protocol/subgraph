@@ -13,7 +13,7 @@ import {
 import { getEventId, scopedId } from '../utils/id'
 import { calculateDepositLiquidityAssets, mulDiv, mulDivCeil } from '../utils/math'
 import { poolPriceFields } from '../utils/pool'
-import { getOrCreateUser } from './shared'
+import { accrueFees, getOrCreateUser } from './shared'
 
 indexer.onEvent({ contract: 'AmmalgamPair', event: 'Sync' }, async ({ event, context }) => {
   const poolId = scopedId(event.chainId, event.srcAddress)
@@ -78,15 +78,14 @@ indexer.onEvent({ contract: 'AmmalgamPair', event: 'Swap' }, async ({ event, con
     txCount: tokenY.txCount + 1,
   })
 
-  context.Pool.set({
-    ...pool,
-    swapCount: pool.swapCount + 1,
-    txCount: pool.txCount + 1,
-    volumeTokenX: pool.volumeTokenX + rawAmountXTotal,
-    volumeTokenY: pool.volumeTokenY + rawAmountYTotal,
-    swapFeesTokenX: pool.swapFeesTokenX + fees.feeAmountX,
-    swapFeesTokenY: pool.swapFeesTokenY + fees.feeAmountY,
-    swapFeesTokenL: pool.swapFeesTokenL + fees.feeL,
+  await accrueFees(context, pool, event.block.timestamp, {
+    swapCount: 1,
+    txCount: 1,
+    volumeTokenX: rawAmountXTotal,
+    volumeTokenY: rawAmountYTotal,
+    swapFeesTokenX: fees.feeAmountX,
+    swapFeesTokenY: fees.feeAmountY,
+    swapFeesTokenL: fees.feeL,
   })
 
   const fromId = scopedId(event.chainId, event.transaction.from!)

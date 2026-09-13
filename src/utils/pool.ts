@@ -64,6 +64,42 @@ export function createDefaultPool(
   }
 }
 
+export function createDefaultPoolDayData(id: string, poolId: string, date: number) {
+  return {
+    id,
+    pool_id: poolId,
+    date,
+    volumeTokenX: ZERO_BI,
+    volumeTokenY: ZERO_BI,
+    txCount: 0,
+    swapCount: 0,
+    swapFeesTokenX: ZERO_BI,
+    swapFeesTokenY: ZERO_BI,
+    swapFeesTokenL: ZERO_BI,
+    grossInterestTokenX: ZERO_BI,
+    grossInterestTokenY: ZERO_BI,
+    grossInterestTokenL: ZERO_BI,
+    grossInterestTokenLAsX: ZERO_BI,
+    grossInterestTokenLAsY: ZERO_BI,
+    protocolInterestTokenX: ZERO_BI,
+    protocolInterestTokenY: ZERO_BI,
+    protocolInterestTokenL: ZERO_BI,
+    protocolInterestTokenLAsX: ZERO_BI,
+    protocolInterestTokenLAsY: ZERO_BI,
+    lpInterestTokenL: ZERO_BI,
+    lpInterestTokenLAsX: ZERO_BI,
+    lpInterestTokenLAsY: ZERO_BI,
+    protocolFeesTokenX: ZERO_BI,
+    protocolFeesTokenY: ZERO_BI,
+    protocolFeesTokenL: ZERO_BI,
+    protocolFeesTokenLAsX: ZERO_BI,
+    protocolFeesTokenLAsY: ZERO_BI,
+    penaltiesTokenL: ZERO_BI,
+    penaltiesTokenLAsX: ZERO_BI,
+    penaltiesTokenLAsY: ZERO_BI,
+  }
+}
+
 export function poolPriceFields(
   tokenX: { decimals: number },
   tokenY: { decimals: number },

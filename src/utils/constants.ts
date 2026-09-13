@@ -18,3 +18,5 @@ export const INITIAL_LENDING_FEE_BIPS = 5n
 export const LENDING_FEE_RATE = 10n
 
 export const BIPS = 10000n
+
+export const DAY_SECONDS = 86400
