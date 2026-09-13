@@ -3,24 +3,9 @@ import { indexer } from 'envio'
 import { updateAt } from '../utils/array'
 import { BORROW_L, BORROW_X, BORROW_Y, DEPOSIT_L, DEPOSIT_X, DEPOSIT_Y } from '../utils/constants'
 import { getEventId, scopedId } from '../utils/id'
-import { depletionAdjustedActiveLiquidity, mulDiv } from '../utils/math'
+import { calculateDepositLiquidityAssets, mulDiv } from '../utils/math'
 import { poolPriceFields } from '../utils/pool'
 import { getOrCreateUser } from './shared'
-
-// depositL = depletion-adjusted active liquidity + borrowL.
-function deriveDepositL(
-  reserveX: bigint,
-  reserveY: bigint,
-  depositX: bigint,
-  depositY: bigint,
-  borrowL: bigint,
-  borrowX: bigint,
-  borrowY: bigint,
-): bigint {
-  const missingX = borrowX > depositX ? borrowX - depositX : 0n
-  const missingY = borrowY > depositY ? borrowY - depositY : 0n
-  return depletionAdjustedActiveLiquidity(reserveX, reserveY, missingX, missingY) + borrowL
-}
 
 indexer.onEvent({ contract: 'AmmalgamPair', event: 'Sync' }, async ({ event, context }) => {
   const poolId = scopedId(event.chainId, event.srcAddress)
@@ -31,7 +16,7 @@ indexer.onEvent({ contract: 'AmmalgamPair', event: 'Sync' }, async ({ event, con
   const tokenY = await context.Token.get(pool.tokenY_id)
   if (!tokenX || !tokenY) return
 
-  const depositL = deriveDepositL(
+  const depositL = calculateDepositLiquidityAssets(
     event.params.reserveXAssets,
     event.params.reserveYAssets,
     pool.totalAssets[DEPOSIT_X] ?? 0n,
@@ -175,7 +160,7 @@ indexer.onEvent(
     const tokenY = await context.Token.get(pool.tokenY_id)
     if (!tokenX || !tokenY) return
 
-    const depositL = deriveDepositL(
+    const depositL = calculateDepositLiquidityAssets(
       event.params.reserveXAssets,
       event.params.reserveYAssets,
       event.params.depositXAssets,

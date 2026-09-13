@@ -45,6 +45,16 @@ export function convertYToL(amountY: bigint, reserveY: bigint, activeLiquidity: 
   return (amountY * activeLiquidity) / reserveY
 }
 
+export function convertLToX(amountL: bigint, reserveX: bigint, activeLiquidity: bigint): bigint {
+  if (activeLiquidity === 0n) return 0n
+  return (amountL * reserveX) / activeLiquidity
+}
+
+export function convertLToY(amountL: bigint, reserveY: bigint, activeLiquidity: bigint): bigint {
+  if (activeLiquidity === 0n) return 0n
+  return (amountL * reserveY) / activeLiquidity
+}
+
 export function mulDiv(a: bigint, b: bigint, denominator: bigint): bigint {
   if (denominator === 0n) return 0n
   return (a * b) / denominator
@@ -79,6 +89,12 @@ export function reserveAdjustment(reserve: bigint, missing: bigint): bigint {
   return reserve * 19n < missing * 20n ? (reserve - missing) * 20n : reserve
 }
 
+// K-check boundary, without the depleted-branch BUFFER_NUMERATOR scale.
+// The basis for valuing a swap fee back into the token it was paid in.
+export function calculateSwapFeeReserve(reserve: bigint, missing: bigint): bigint {
+  return reserve * 19n < missing * 20n ? reserve - missing : reserve
+}
+
 export function depletionAdjustedActiveLiquidity(
   reserveX: bigint,
   reserveY: bigint,
@@ -86,6 +102,80 @@ export function depletionAdjustedActiveLiquidity(
   missingY: bigint,
 ): bigint {
   return isqrt(reserveAdjustment(reserveX, missingX) * reserveAdjustment(reserveY, missingY))
+}
+
+export function swapFeeGrowth(
+  preX: bigint,
+  preY: bigint,
+  postX: bigint,
+  postY: bigint,
+  missingX: bigint,
+  missingY: bigint,
+): bigint {
+  const activeBefore = depletionAdjustedActiveLiquidity(preX, preY, missingX, missingY)
+  const activeAfter = depletionAdjustedActiveLiquidity(postX, postY, missingX, missingY)
+  const growth = activeAfter - activeBefore
+  return growth > 0n ? growth : 0n
+}
+
+// depositL = depletion-adjusted active liquidity + borrowL
+export function calculateDepositLiquidityAssets(
+  reserveX: bigint,
+  reserveY: bigint,
+  depositX: bigint,
+  depositY: bigint,
+  borrowL: bigint,
+  borrowX: bigint,
+  borrowY: bigint,
+): bigint {
+  const missingX = borrowX > depositX ? borrowX - depositX : 0n
+  const missingY = borrowY > depositY ? borrowY - depositY : 0n
+  return depletionAdjustedActiveLiquidity(reserveX, reserveY, missingX, missingY) + borrowL
+}
+
+// Splits a two-sided swap's growth by each input weighted as the K check weighs it.
+export function splitSwapFee(
+  feeL: bigint,
+  amountXIn: bigint,
+  amountYIn: bigint,
+  postX: bigint,
+  postY: bigint,
+  missingX: bigint,
+  missingY: bigint,
+  activeLiquidity: bigint,
+): { feeAmountX: bigint; feeAmountY: bigint } {
+  if (feeL === 0n || activeLiquidity === 0n) {
+    return { feeAmountX: 0n, feeAmountY: 0n }
+  }
+  if (amountYIn === 0n) {
+    return {
+      feeAmountX: (2n * feeL * calculateSwapFeeReserve(postX, missingX)) / activeLiquidity,
+      feeAmountY: 0n,
+    }
+  }
+  if (amountXIn === 0n) {
+    return {
+      feeAmountX: 0n,
+      feeAmountY: (2n * feeL * calculateSwapFeeReserve(postY, missingY)) / activeLiquidity,
+    }
+  }
+
+  const depletedX = postX * 19n < missingX * 20n
+  const depletedY = postY * 19n < missingY * 20n
+  const weightX = depletedX ? amountXIn * 20n : amountXIn
+  const weightY = depletedY ? amountYIn * 20n : amountYIn
+
+  // Cross-multiplied at the post-swap price (postY / postX) so the two legs compare on one basis.
+  const crossX = weightX * postY
+  const crossY = weightY * postX
+  const denominator = crossX + crossY
+  const feeLX = denominator === 0n ? 0n : (feeL * crossX) / denominator
+  const feeLY = feeL - feeLX
+
+  return {
+    feeAmountX: (2n * feeLX * calculateSwapFeeReserve(postX, missingX)) / activeLiquidity,
+    feeAmountY: (2n * feeLY * calculateSwapFeeReserve(postY, missingY)) / activeLiquidity,
+  }
 }
 
 // Signed L-denominated principal contribution of an asset delta.
@@ -102,8 +192,6 @@ export function principalContribution(
   return 0n
 }
 
-// Borrow events store post-fee assets, so principal must be recovered by inversion.
-// Returns undefined (never a nearest fit) when no integer solves the equation.
 export function splitLendingFee(
   amount: bigint,
 ): { principal: bigint; lendingFee: bigint } | undefined {
