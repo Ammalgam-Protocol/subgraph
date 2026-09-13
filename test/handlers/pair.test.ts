@@ -275,6 +275,42 @@ describe('pair handlers', () => {
     expect(pool.reserveX).toBe(400n)
   })
 
+  it('InterestAccrued re-derives DEPOSIT_L fee-inclusive (D10)', async () => {
+    const indexer = createTestIndexer()
+    seedPool(indexer, { totalAssets: [999n, 0n, 0n, 0n, 100n, 200n] })
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'AmmalgamPair',
+              event: 'InterestAccrued',
+              srcAddress: POOL,
+              logIndex: 0,
+              block: { number: 27, timestamp: 270 },
+              transaction: { hash: '0xintfee', from: FROM },
+              params: {
+                reserveXAssets: 50n,
+                reserveYAssets: 200n,
+                depositXAssets: 100n,
+                depositYAssets: 1000n,
+                borrowLAssets: 0n,
+                // gross X = 150 - 100(pre) = 50 -> protocolInterestX = ceil(50*10/100) = 5
+                borrowXAssets: 150n,
+                // gross Y = 200 - 200(pre) = 0 -> protocolInterestY = 0
+                borrowYAssets: 200n,
+              },
+            },
+          ],
+        },
+      },
+    })
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    // fee-inclusive: missingX = 150-(100+5) = 45, not depleted -> reserveAdjustment(50,45) = 50 ->
+    // depositL = isqrt(50*200) = 100. Ignoring the fee gives depositL = 0, so 100 proves it counted.
+    expect(pool.totalAssets[0]).toBe(100n)
+  })
+
   it('Sync recomputes totalAssets[DEPOSIT_L] from new reserves (D10)', async () => {
     const indexer = createTestIndexer()
     seedPool(indexer, { totalAssets: [700n, 500n, 600n, 100n, 200n, 50n] })
@@ -332,7 +368,7 @@ describe('pair handlers', () => {
     expect(pool.reserveX).toBe(1000n)
   })
 
-  it('BurnBadDebt BORROW_L decrements DEPOSIT_L directly', async () => {
+  it('BurnBadDebt on BORROW_L touches neither BORROW_L nor DEPOSIT_L directly (D10)', async () => {
     const indexer = createTestIndexer()
     seedPool(indexer, { totalAssets: [700n, 0n, 0n, 300n, 0n, 0n] })
     await indexer.process({
@@ -358,7 +394,10 @@ describe('pair handlers', () => {
       },
     })
     const pool = await indexer.Pool.getOrThrow(POOL_ID)
-    expect(pool.totalAssets[0]).toBe(650n)
+    // The preceding Transfer burn (not fired here) lands the BORROW_L decrement and re-derives
+    // DEPOSIT_L; this branch touches neither.
+    expect(pool.totalAssets[0]).toBe(700n)
+    expect(pool.totalAssets[3]).toBe(300n)
   })
 
   it('UpdateExternalLiquidity stores the value', async () => {

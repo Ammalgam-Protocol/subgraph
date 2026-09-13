@@ -1,10 +1,23 @@
 import type { EvmOnEventContext, LendingToken, Pool } from 'envio'
 
 import { addAt, updateAt } from '../utils/array'
-import { ADDRESS_ZERO, BORROW_L, DEPOSIT_L, DEPOSIT_X, DEPOSIT_Y } from '../utils/constants'
+import {
+  ADDRESS_ZERO,
+  BORROW_L,
+  BORROW_X,
+  BORROW_Y,
+  DEPOSIT_L,
+  DEPOSIT_X,
+  DEPOSIT_Y,
+} from '../utils/constants'
 import { type EventHeaderSource, lendingEventFields, transferEventFields } from '../utils/events'
 import { getPositionId, scopedId } from '../utils/id'
-import { principalContribution, splitLendingFee, toAssets } from '../utils/math'
+import {
+  calculateDepositLiquidityAssets,
+  principalContribution,
+  splitLendingFee,
+  toAssets,
+} from '../utils/math'
 import { createDefaultPosition } from '../utils/position'
 import { createDefaultUser } from '../utils/user'
 
@@ -198,6 +211,19 @@ function getAssets(
   return toAssets(value, pool.totalAssets[tokenType] ?? 0n, pool.totalShares[tokenType] ?? 0n)
 }
 
+function updateAssets(pool: Pool): bigint[] {
+  const depositL = calculateDepositLiquidityAssets(
+    pool.reserveX,
+    pool.reserveY,
+    pool.totalAssets[DEPOSIT_X] ?? 0n,
+    pool.totalAssets[DEPOSIT_Y] ?? 0n,
+    pool.totalAssets[BORROW_L] ?? 0n,
+    pool.totalAssets[BORROW_X] ?? 0n,
+    pool.totalAssets[BORROW_Y] ?? 0n,
+  )
+  return updateAt(pool.totalAssets, depositL, DEPOSIT_L)
+}
+
 export async function handleLendingTokenTransfer(event: TransferEvent, context: EvmOnEventContext) {
   if (event.params.value === 0n) return
 
@@ -216,10 +242,13 @@ export async function handleLendingTokenTransfer(event: TransferEvent, context: 
   if (isMint) {
     const assets = getAssets(context, lendingToken, tokenType, value, pool)
     const principalDelta = principalContribution(tokenType, assets, pool)
-    const updatedPool = {
+    let updatedPool = {
       ...pool,
       totalShares: addAt(pool.totalShares, value, tokenType),
       totalAssets: addAt(pool.totalAssets, assets, tokenType),
+    }
+    if (tokenType !== DEPOSIT_L) {
+      updatedPool = { ...updatedPool, totalAssets: updateAssets(updatedPool) }
     }
     const newPositions = await applyPositionDelta(
       context,
@@ -237,10 +266,13 @@ export async function handleLendingTokenTransfer(event: TransferEvent, context: 
   if (isBurn) {
     const assets = getAssets(context, lendingToken, tokenType, value, pool)
     const principalDelta = principalContribution(tokenType, assets, pool)
-    const updatedPool = {
+    let updatedPool = {
       ...pool,
       totalShares: addAt(pool.totalShares, -value, tokenType),
       totalAssets: addAt(pool.totalAssets, -assets, tokenType),
+    }
+    if (tokenType !== DEPOSIT_L) {
+      updatedPool = { ...updatedPool, totalAssets: updateAssets(updatedPool) }
     }
     const newPositions = await applyPositionDelta(
       context,
@@ -310,11 +342,7 @@ export async function handleLendingTokenTransfer(event: TransferEvent, context: 
   }
 }
 
-type FeeField =
-  | 'protocolFeesTokenX'
-  | 'protocolFeesTokenY'
-  | 'protocolFeesTokenL'
-  | 'penaltiesTokenL'
+type FeeField = 'protocolFeesTokenX' | 'protocolFeesTokenY' | 'protocolFeesTokenL'
 
 // Partial: a deposit-side token never has a protocol-fee column and vice versa, so a miss is a
 // mis-wired lendingToken. Bucketing it into L would silently corrupt the aggregate.
@@ -324,29 +352,23 @@ const PROTOCOL_FEE_FIELDS: Partial<Record<number, FeeField>> = {
   [DEPOSIT_Y]: 'protocolFeesTokenY',
 }
 
-// Additive aggregation only: fee mints already flow through the Transfer spine,
-// so this never touches shares/assets/principal or pool totals.
-function accrueFee(context: EvmOnEventContext, pool: Pool, field: FeeField, amount: bigint) {
-  context.Pool.set({ ...pool, [field]: pool[field] + amount })
-}
-
 function accrueProtocolFee(
   context: EvmOnEventContext,
   pool: Pool,
   lendingToken: { tokenType: number },
   amount: bigint,
-) {
+): Pool {
   const field = PROTOCOL_FEE_FIELDS[lendingToken.tokenType]
   if (!field) {
     context.log.warn(`no protocol fee column for tokenType ${lendingToken.tokenType}`)
-    return
+    return pool
   }
-  accrueFee(context, pool, field, amount)
+  return { ...pool, [field]: pool[field] + amount }
 }
 
 // Saturation penalties are minted as BORROW_L debt with the pair as `sender`.
-function accruePenalty(context: EvmOnEventContext, pool: Pool, amount: bigint) {
-  accrueFee(context, pool, 'penaltiesTokenL', amount)
+function accruePenalty(pool: Pool, amount: bigint): Pool {
+  return { ...pool, penaltiesTokenL: pool.penaltiesTokenL + amount }
 }
 
 type LendingActionEvent = EventHeaderSource & {
@@ -380,14 +402,30 @@ export async function handleDepositAction(
   // mintProtocolFees routes through ownerMint, the only pair-sender deposit path.
   const isProtocolFee = isPairSender(event, pool)
 
-  const { pool: updatedPool, ...ids } = await handleLendingAction(context, event, pool, {
+  let { pool: updatedPool, ...ids } = await handleLendingAction(context, event, pool, {
     recipient,
     sender: event.params.sender,
     action: 'deposit',
     isPairOriginated: isProtocolFee,
   })
 
-  if (isProtocolFee) accrueProtocolFee(context, updatedPool, lendingToken, event.params.assets)
+  if (isProtocolFee) {
+    updatedPool = accrueProtocolFee(context, updatedPool, lendingToken, event.params.assets)
+
+    // DEPOSIT_L fee mints dilute shares without adding assets, so we back out the fee.
+    if (lendingToken.tokenType === DEPOSIT_L) {
+      const totalAssets = updateAssets(updatedPool)
+      updatedPool = {
+        ...updatedPool,
+        totalAssets: updateAt(
+          totalAssets,
+          (totalAssets[DEPOSIT_L] ?? 0n) - event.params.assets,
+          DEPOSIT_L,
+        ),
+      }
+    }
+    context.Pool.set(updatedPool)
+  }
 
   context.LendingToken.set({
     ...lendingToken,
@@ -445,7 +483,7 @@ export async function handleBorrowAction(
 
   const split = isPenalty ? undefined : splitLendingFee(event.params.assets)
   if (isPenalty) {
-    accruePenalty(context, updatedPool, event.params.assets)
+    context.Pool.set(accruePenalty(updatedPool, event.params.assets))
   } else if (!split) {
     // INITIAL_LENDING_FEE_BIPS changed upstream; null beats a wrong number.
     context.log.warn(

@@ -1,9 +1,17 @@
 import { indexer } from 'envio'
 
 import { updateAt } from '../utils/array'
-import { BORROW_L, BORROW_X, BORROW_Y, DEPOSIT_L, DEPOSIT_X, DEPOSIT_Y } from '../utils/constants'
+import {
+  BORROW_L,
+  BORROW_X,
+  BORROW_Y,
+  DEPOSIT_L,
+  DEPOSIT_X,
+  DEPOSIT_Y,
+  LENDING_FEE_RATE,
+} from '../utils/constants'
 import { getEventId, scopedId } from '../utils/id'
-import { calculateDepositLiquidityAssets, mulDiv } from '../utils/math'
+import { calculateDepositLiquidityAssets, mulDiv, mulDivCeil } from '../utils/math'
 import { poolPriceFields } from '../utils/pool'
 import { getOrCreateUser } from './shared'
 
@@ -160,11 +168,16 @@ indexer.onEvent(
     const tokenY = await context.Token.get(pool.tokenY_id)
     if (!tokenX || !tokenY) return
 
+    const grossX = event.params.borrowXAssets - (pool.totalAssets[BORROW_X] ?? 0n)
+    const grossY = event.params.borrowYAssets - (pool.totalAssets[BORROW_Y] ?? 0n)
+    const protocolInterestX = grossX > 0n ? mulDivCeil(grossX, LENDING_FEE_RATE, 100n) : 0n
+    const protocolInterestY = grossY > 0n ? mulDivCeil(grossY, LENDING_FEE_RATE, 100n) : 0n
+
     const depositL = calculateDepositLiquidityAssets(
       event.params.reserveXAssets,
       event.params.reserveYAssets,
-      event.params.depositXAssets,
-      event.params.depositYAssets,
+      event.params.depositXAssets + protocolInterestX,
+      event.params.depositYAssets + protocolInterestY,
       event.params.borrowLAssets,
       event.params.borrowXAssets,
       event.params.borrowYAssets,
@@ -213,14 +226,7 @@ indexer.onEvent({ contract: 'AmmalgamPair', event: 'BurnBadDebt' }, async ({ eve
 
   const tokenType = Number(event.params.tokenType)
   let totalAssets = pool.totalAssets
-  if (tokenType === BORROW_L) {
-    // Reserves untouched and no follow-up Sync on this path: back depositL out directly.
-    totalAssets = updateAt(
-      totalAssets,
-      (totalAssets[DEPOSIT_L] ?? 0n) - event.params.badDebtAssets,
-      DEPOSIT_L,
-    )
-  } else if (tokenType === BORROW_X || tokenType === BORROW_Y) {
+  if (tokenType === BORROW_X || tokenType === BORROW_Y) {
     const reserve = tokenType === BORROW_X ? pool.reserveX : pool.reserveY
     const depositIndex = tokenType === BORROW_X ? DEPOSIT_X : DEPOSIT_Y
     const depositAssets = totalAssets[depositIndex] ?? 0n

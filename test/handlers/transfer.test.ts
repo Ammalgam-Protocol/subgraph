@@ -7,12 +7,18 @@ import { createDefaultPool } from '../../src/utils/pool'
 const CHAIN = 11155111
 const POOL: `0x${string}` = '0xaa01000000000000000000000000000000000001'
 const LEND_X: `0x${string}` = '0x00000000000000000000000000000000000000d1'
+const LEND_BL: `0x${string}` = '0x00000000000000000000000000000000000000d3'
+const LEND_BX: `0x${string}` = '0x00000000000000000000000000000000000000d4'
+const LEND_DL: `0x${string}` = '0x00000000000000000000000000000000000000d0'
 const ALICE: `0x${string}` = '0xc0de000000000000000000000000000000000001'
 const BOB: `0x${string}` = '0xc0de000000000000000000000000000000000002'
 const ZERO: `0x${string}` = '0x0000000000000000000000000000000000000000'
 
 const POOL_ID = scopedId(CHAIN, POOL)
 const LEND_X_ID = scopedId(CHAIN, LEND_X)
+const LEND_BL_ID = scopedId(CHAIN, LEND_BL)
+const LEND_BX_ID = scopedId(CHAIN, LEND_BX)
+const LEND_DL_ID = scopedId(CHAIN, LEND_DL)
 const ALICE_ID = scopedId(CHAIN, ALICE)
 const BOB_ID = scopedId(CHAIN, BOB)
 
@@ -250,5 +256,136 @@ describe('lending-token Transfer accounting', () => {
     // Second mint floors at the post-first-mint rate: toAssets(2, 7, 3) = 4, landing at 11.
     // A stash leak would incorrectly reuse assets=5 here and land at 12 instead.
     expect(pool.totalAssets[1]).toBe(11n)
+  })
+
+  it('a BORROW_L mint Transfer re-derives DEPOSIT_L, not just BORROW_L (D10)', async () => {
+    const indexer = createTestIndexer()
+    indexer.LendingToken.set({
+      id: LEND_BL_ID,
+      symbol: 'dLP',
+      name: 'Debt LP',
+      decimals: 18,
+      pool_id: POOL_ID,
+      tokenType: 3, // BORROW_L
+      pendingAssets: undefined,
+      pendingShares: undefined,
+    })
+    const pool = createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n)
+    indexer.Pool.set({
+      ...pool,
+      reserveX: 900n,
+      reserveY: 900n,
+      // stale/inconsistent on purpose: proves the mint overwrites it, not just adds to it
+      totalAssets: [500n, 0n, 0n, 100n, 0n, 0n],
+      totalShares: [0n, 0n, 0n, 100n, 0n, 0n],
+    })
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'ERC20DebtLiquidity',
+              event: 'Transfer',
+              srcAddress: LEND_BL,
+              logIndex: 0,
+              block: { number: 10, timestamp: 100 },
+              transaction: { hash: '0xbl', from: ALICE },
+              params: { from: ZERO, to: ALICE, value: 50n },
+            },
+          ],
+        },
+      },
+    })
+    const updated = await indexer.Pool.getOrThrow(POOL_ID)
+    expect(updated.totalAssets[3]).toBe(150n) // borrowL 100 + 50
+    // missingX = missingY = 0 -> isqrt(900*900) = 900; depositL = 900 + 150, not 500 + 50
+    expect(updated.totalAssets[0]).toBe(1050n)
+  })
+
+  it('a BORROW_X mint Transfer re-derives DEPOSIT_L through the depletion formula (D10)', async () => {
+    const indexer = createTestIndexer()
+    indexer.LendingToken.set({
+      id: LEND_BX_ID,
+      symbol: 'dTKX',
+      name: 'Debt TKX',
+      decimals: 18,
+      pool_id: POOL_ID,
+      tokenType: 4, // BORROW_X
+      pendingAssets: undefined,
+      pendingShares: undefined,
+    })
+    const pool = createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n)
+    indexer.Pool.set({
+      ...pool,
+      reserveX: 100n,
+      reserveY: 100n,
+      totalAssets: [999n, 0n, 0n, 0n, 0n, 0n],
+      totalShares: [0n, 0n, 0n, 0n, 0n, 0n],
+    })
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'ERC4626Debt',
+              event: 'Transfer',
+              srcAddress: LEND_BX,
+              logIndex: 0,
+              block: { number: 10, timestamp: 100 },
+              transaction: { hash: '0xbx', from: ALICE },
+              params: { from: ZERO, to: ALICE, value: 100n },
+            },
+          ],
+        },
+      },
+    })
+    const updated = await indexer.Pool.getOrThrow(POOL_ID)
+    expect(updated.totalAssets[4]).toBe(100n)
+    // missingX = 100 - depositX(0) = 100 -> depleted (100*20 > 100*19) -> reserveAdjustment(100,100) = 0
+    // depositL = isqrt(0 * reserveAdjustment(100,0)) + borrowL(0) = 0, not the stale 999
+    expect(updated.totalAssets[0]).toBe(0n)
+  })
+
+  it('a DEPOSIT_L mint Transfer lands its own exact assets and does not re-derive (D10 carve-out)', async () => {
+    const indexer = createTestIndexer()
+    indexer.LendingToken.set({
+      id: LEND_DL_ID,
+      symbol: 'aLP',
+      name: 'Ammalgam LP',
+      decimals: 18,
+      pool_id: POOL_ID,
+      tokenType: 0, // DEPOSIT_L
+      pendingAssets: 777n,
+      pendingShares: 50n,
+    })
+    const pool = createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n)
+    indexer.Pool.set({
+      ...pool,
+      // reserves chosen so the formula (isqrt(1*1) = 1) is nowhere near the exact-assets answer:
+      // a regression that re-derives here instead of consuming the stash is unmissable.
+      reserveX: 1n,
+      reserveY: 1n,
+      totalAssets: [1000n, 0n, 0n, 0n, 0n, 0n],
+      totalShares: [500n, 0n, 0n, 0n, 0n, 0n],
+    })
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'ERC20DepositLiquidity',
+              event: 'Transfer',
+              srcAddress: LEND_DL,
+              logIndex: 0,
+              block: { number: 10, timestamp: 100 },
+              transaction: { hash: '0xdl', from: ALICE },
+              params: { from: ZERO, to: ALICE, value: 50n },
+            },
+          ],
+        },
+      },
+    })
+    const updated = await indexer.Pool.getOrThrow(POOL_ID)
+    expect(updated.totalAssets[0]).toBe(1777n) // 1000 + stashed 777, not isqrt(1*1) = 1
   })
 })

@@ -14,6 +14,7 @@ const LEND_BX: `0x${string}` = '0x00000000000000000000000000000000000000d4'
 const LEND_BL: `0x${string}` = '0x00000000000000000000000000000000000000d3'
 const ALICE: `0x${string}` = '0xc0de000000000000000000000000000000000001'
 const BOB: `0x${string}` = '0xc0de000000000000000000000000000000000002'
+const BORROWER: `0x${string}` = '0xb00b000000000000000000000000000000000001'
 const FEE_TO: `0x${string}` = '0xfee0000000000000000000000000000000000001'
 const ZERO: `0x${string}` = '0x0000000000000000000000000000000000000000'
 
@@ -46,7 +47,12 @@ function seedLendingToken(
 
 function seedPool(
   indexer: ReturnType<typeof createTestIndexer>,
-  overrides?: Partial<{ totalAssets: bigint[]; totalShares: bigint[] }>,
+  overrides?: Partial<{
+    totalAssets: bigint[]
+    totalShares: bigint[]
+    reserveX: bigint
+    reserveY: bigint
+  }>,
 ) {
   const pool = createDefaultPool(POOL_ID, TX_ID, TY_ID, 'X-Y', 1n, 1n)
   indexer.Pool.set({ ...pool, ...overrides })
@@ -79,6 +85,41 @@ function debtTransfer(from: `0x${string}`, to: `0x${string}`, value: bigint, log
     block: { number: 10, timestamp: 100 },
     transaction: { hash: '0xt', from: ALICE },
     params: { from, to, value },
+  }
+}
+
+function debtLiquidityTransfer(
+  from: `0x${string}`,
+  to: `0x${string}`,
+  value: bigint,
+  logIndex: number,
+) {
+  return {
+    contract: 'ERC20DebtLiquidity' as const,
+    event: 'Transfer' as const,
+    srcAddress: LEND_BL,
+    logIndex,
+    block: { number: 10, timestamp: 100 },
+    transaction: { hash: '0xt', from: ALICE },
+    params: { from, to, value },
+  }
+}
+
+function burnBadDebt(
+  tokenType: bigint,
+  badDebtAssets: bigint,
+  badDebtShares: bigint,
+  logIndex: number,
+  block: { number: number; timestamp: number } = { number: 10, timestamp: 100 },
+) {
+  return {
+    contract: 'AmmalgamPair' as const,
+    event: 'BurnBadDebt' as const,
+    srcAddress: POOL,
+    logIndex,
+    block,
+    transaction: { hash: '0xbbd', from: ALICE },
+    params: { borrower: BORROWER, tokenType, badDebtAssets, badDebtShares },
   }
 }
 
@@ -322,5 +363,90 @@ describe('cross-handler invariants and sequences', () => {
       .reduce((acc, borrow) => acc + borrow.amount, 0n)
     expect(flaggedSum).toBe(2000000000000000000n) // sanity: not vacuous
     expect(pool.penaltiesTokenL.toString()).toBe('2000000000000000000')
+  })
+
+  it("BurnBadDebt on BORROW_L lands the preceding Transfer burn's re-derive once, not twice (D10)", async () => {
+    const indexer = createTestIndexer()
+    seedLendingToken(indexer, LEND_BL_ID, POOL_ID, 3)
+    seedPool(indexer, {
+      reserveX: 400n,
+      reserveY: 400n,
+      totalAssets: [700n, 0n, 0n, 300n, 0n, 0n], // isqrt(400*400) + 300 = 700, consistent
+      totalShares: [0n, 0n, 0n, 300n, 0n, 0n],
+    })
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [debtLiquidityTransfer(ALICE, ZERO, 50n, 0), burnBadDebt(3n, 50n, 50n, 1)],
+        },
+      },
+    })
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    // Transfer burn alone re-derives to isqrt(400*400) + 250 = 650; a BORROW_L decrement on top
+    // of that would double-count the burn and land 600 instead.
+    expect(pool.totalAssets[3]).toBe(250n)
+    expect(pool.totalAssets[0]).toBe(650n)
+  })
+
+  it('a BORROW_L penalty mint before InterestAccrued is not double-counted (D10)', async () => {
+    const indexer = createTestIndexer()
+    indexer.Token.set({
+      id: TX_ID,
+      symbol: 'TKX',
+      name: 'Token X',
+      decimals: 18,
+      poolCount: 1,
+      txCount: 0,
+      volume: 0n,
+      whitelistPoolIds: [],
+    })
+    indexer.Token.set({
+      id: TY_ID,
+      symbol: 'TKY',
+      name: 'Token Y',
+      decimals: 18,
+      poolCount: 1,
+      txCount: 0,
+      volume: 0n,
+      whitelistPoolIds: [],
+    })
+    seedLendingToken(indexer, LEND_BL_ID, POOL_ID, 3)
+    seedPool(indexer, {
+      reserveX: 300n,
+      reserveY: 300n,
+      totalAssets: [300n, 0n, 0n, 0n, 0n, 0n], // isqrt(300*300) + 0 = 300, consistent
+      totalShares: [0n, 0n, 0n, 0n, 0n, 0n],
+    })
+
+    // 10 L of penalty lands at its own Transfer mint; 5 L of LP interest accrues on top in the
+    // same block, so the accrual's borrowLAssets (15) already includes both. D10 re-derives after each.
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            debtLiquidityTransfer(ZERO, ALICE, 10n, 0),
+            {
+              contract: 'AmmalgamPair' as const,
+              event: 'InterestAccrued' as const,
+              srcAddress: POOL,
+              logIndex: 1,
+              block: { number: 10, timestamp: 100 },
+              transaction: { hash: '0xia', from: ALICE },
+              params: {
+                reserveXAssets: 300n,
+                reserveYAssets: 300n,
+                depositXAssets: 0n,
+                depositYAssets: 0n,
+                borrowLAssets: 15n,
+                borrowXAssets: 0n,
+                borrowYAssets: 0n,
+              },
+            },
+          ],
+        },
+      },
+    })
+    const afterAccrual = await indexer.Pool.getOrThrow(POOL_ID)
+    expect(afterAccrual.totalAssets[0]).toBe(315n) // 300 + 10 (penalty) + 5 (LP interest), once each
   })
 })
