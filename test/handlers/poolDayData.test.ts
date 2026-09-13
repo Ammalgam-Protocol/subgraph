@@ -37,7 +37,11 @@ function seed(indexer: ReturnType<typeof createTestIndexer>) {
     volume: 0n,
     whitelistPoolIds: [],
   })
-  indexer.Pool.set(createDefaultPool(POOL_ID, TX_ID, TY_ID, 'TKX-TKY', 1n, 1n))
+  indexer.Pool.set({
+    ...createDefaultPool(POOL_ID, TX_ID, TY_ID, 'TKX-TKY', 1n, 1n),
+    reserveX: 1000n,
+    reserveY: 1000n,
+  })
 }
 
 describe('PoolDayData: one write path for yield', () => {

@@ -11,7 +11,14 @@ import {
   LENDING_FEE_RATE,
 } from '../utils/constants'
 import { getEventId, scopedId } from '../utils/id'
-import { calculateDepositLiquidityAssets, mulDiv, mulDivCeil } from '../utils/math'
+import {
+  calculateDepositLiquidityAssets,
+  depletionAdjustedActiveLiquidity,
+  mulDiv,
+  mulDivCeil,
+  splitSwapFee,
+  swapFeeGrowth,
+} from '../utils/math'
 import { poolPriceFields } from '../utils/pool'
 import { accrueFees, getOrCreateUser } from './shared'
 
@@ -62,7 +69,45 @@ indexer.onEvent({ contract: 'AmmalgamPair', event: 'Swap' }, async ({ event, con
   const tokenY = await context.Token.get(pool.tokenY_id)
   if (!tokenX || !tokenY) return
 
-  const fees = { feeL: 0n, feeAmountX: 0n, feeAmountY: 0n }
+  const missingX =
+    pool.totalAssets[BORROW_X] > pool.totalAssets[DEPOSIT_X]
+      ? pool.totalAssets[BORROW_X] - pool.totalAssets[DEPOSIT_X]
+      : 0n
+  const missingY =
+    pool.totalAssets[BORROW_Y] > pool.totalAssets[DEPOSIT_Y]
+      ? pool.totalAssets[BORROW_Y] - pool.totalAssets[DEPOSIT_Y]
+      : 0n
+
+  const reserveXBefore = pool.reserveX
+  const reserveYBefore = pool.reserveY
+  const reserveXAfter = reserveXBefore + event.params.amountXIn - event.params.amountXOut
+  const reserveYAfter = reserveYBefore + event.params.amountYIn - event.params.amountYOut
+
+  const feeL = swapFeeGrowth(
+    reserveXBefore,
+    reserveYBefore,
+    reserveXAfter,
+    reserveYAfter,
+    missingX,
+    missingY,
+  )
+  const activeLiquidity = depletionAdjustedActiveLiquidity(
+    reserveXAfter,
+    reserveYAfter,
+    missingX,
+    missingY,
+  )
+  const { feeAmountX, feeAmountY } = splitSwapFee(
+    feeL,
+    event.params.amountXIn,
+    event.params.amountYIn,
+    reserveXAfter,
+    reserveYAfter,
+    missingX,
+    missingY,
+    activeLiquidity,
+  )
+  const fees = { feeL, feeAmountX, feeAmountY }
 
   const rawAmountXTotal = event.params.amountXOut + event.params.amountXIn
   const rawAmountYTotal = event.params.amountYOut + event.params.amountYIn

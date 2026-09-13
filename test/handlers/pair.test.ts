@@ -90,7 +90,7 @@ describe('pair handlers', () => {
 
   it('Swap updates volume, counts, and creates Swap + Users', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    seedPool(indexer, { reserveX: 1000n, reserveY: 1000n })
     await indexer.process({
       chains: {
         11155111: {
@@ -122,6 +122,11 @@ describe('pair handlers', () => {
     expect(swap.sender_id).toBe(SENDER_ID)
     expect(swap.to_id).toBe(TO_ID)
     expect(swap.from_id).toBe(FROM_ID)
+    // pre=(1000,1000) -> 1000; post=(1100,950) -> isqrt(1045000)=1022 -> feeL=22
+    // feeAmountX = 2*22*calculateSwapFeeReserve(1100,0)/1022 = 48400/1022 = 47
+    expect(swap.feeL).toBe(22n)
+    expect(swap.feeAmountX).toBe(47n)
+    expect(swap.feeAmountY).toBe(0n)
     const fromUser = await indexer.User.getOrThrow(FROM_ID)
     expect(fromUser.swapCount).toBe(1)
   })
