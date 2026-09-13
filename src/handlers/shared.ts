@@ -177,6 +177,27 @@ async function applyPositionDelta(
   return newPositions
 }
 
+function getAssets(
+  context: EvmOnEventContext,
+  lendingToken: LendingToken,
+  tokenType: number,
+  value: bigint,
+  pool: Pool,
+): bigint {
+  if (lendingToken.pendingAssets !== undefined && lendingToken.pendingShares === value) {
+    const assets = lendingToken.pendingAssets
+    context.LendingToken.set({
+      ...lendingToken,
+      pendingAssets: undefined,
+      pendingShares: undefined,
+    })
+    return assets
+  }
+
+  context.log.warn(`Direct transfer of ${value} shares on lending token ${lendingToken.id}`)
+  return toAssets(value, pool.totalAssets[tokenType] ?? 0n, pool.totalShares[tokenType] ?? 0n)
+}
+
 export async function handleLendingTokenTransfer(event: TransferEvent, context: EvmOnEventContext) {
   if (event.params.value === 0n) return
 
@@ -189,22 +210,16 @@ export async function handleLendingTokenTransfer(event: TransferEvent, context: 
   const senderId = scopedId(event.chainId, event.params.from)
   const receiverId = scopedId(event.chainId, event.params.to)
 
-  // Pre-delta rate: implied assets and principal use the totals before this transfer.
-  const assetsImplied = toAssets(
-    value,
-    pool.totalAssets[tokenType] ?? 0n,
-    pool.totalShares[tokenType] ?? 0n,
-  )
-  const contribution = principalContribution(tokenType, assetsImplied, pool)
-
   const isMint = event.params.from.toLowerCase() === ADDRESS_ZERO
   const isBurn = event.params.to.toLowerCase() === ADDRESS_ZERO
 
   if (isMint) {
+    const assets = getAssets(context, lendingToken, tokenType, value, pool)
+    const principalDelta = principalContribution(tokenType, assets, pool)
     const updatedPool = {
       ...pool,
       totalShares: addAt(pool.totalShares, value, tokenType),
-      totalAssets: addAt(pool.totalAssets, assetsImplied, tokenType),
+      totalAssets: addAt(pool.totalAssets, assets, tokenType),
     }
     const newPositions = await applyPositionDelta(
       context,
@@ -213,17 +228,19 @@ export async function handleLendingTokenTransfer(event: TransferEvent, context: 
       receiverId,
       tokenType,
       value,
-      contribution,
+      principalDelta,
     )
     context.Pool.set({ ...updatedPool, positionCount: updatedPool.positionCount + newPositions })
     return
   }
 
   if (isBurn) {
+    const assets = getAssets(context, lendingToken, tokenType, value, pool)
+    const principalDelta = principalContribution(tokenType, assets, pool)
     const updatedPool = {
       ...pool,
       totalShares: addAt(pool.totalShares, -value, tokenType),
-      totalAssets: addAt(pool.totalAssets, -assetsImplied, tokenType),
+      totalAssets: addAt(pool.totalAssets, -assets, tokenType),
     }
     const newPositions = await applyPositionDelta(
       context,
@@ -232,13 +249,20 @@ export async function handleLendingTokenTransfer(event: TransferEvent, context: 
       senderId,
       tokenType,
       -value,
-      -contribution,
+      -principalDelta,
     )
     context.Pool.set({ ...updatedPool, positionCount: updatedPool.positionCount + newPositions })
     return
   }
 
   // Move: pool totals unchanged, both sides independent. Entity + counters only
+  const floorAssets = toAssets(
+    value,
+    pool.totalAssets[tokenType] ?? 0n,
+    pool.totalShares[tokenType] ?? 0n,
+  )
+  const principalDelta = principalContribution(tokenType, floorAssets, pool)
+
   const isUserFacing = senderId !== pool.id && receiverId !== pool.id
   const senderCounter = isUserFacing ? ('transferred' as const) : undefined
   const receiverCounter = isUserFacing ? ('received' as const) : undefined
@@ -250,7 +274,7 @@ export async function handleLendingTokenTransfer(event: TransferEvent, context: 
     senderId,
     tokenType,
     -value,
-    -contribution,
+    -principalDelta,
     senderCounter,
   )
   const newFromReceiver = await applyPositionDelta(
@@ -260,7 +284,7 @@ export async function handleLendingTokenTransfer(event: TransferEvent, context: 
     receiverId,
     tokenType,
     value,
-    contribution,
+    principalDelta,
     receiverCounter,
   )
 
@@ -279,7 +303,7 @@ export async function handleLendingTokenTransfer(event: TransferEvent, context: 
         senderPositionId: getPositionId(senderId, pool.id),
         receiverPositionId: getPositionId(receiverId, pool.id),
         assetId: lendingToken.id,
-        amount: assetsImplied,
+        amount: floorAssets,
         shares: value,
       }),
     )
@@ -365,6 +389,12 @@ export async function handleDepositAction(
 
   if (isProtocolFee) accrueProtocolFee(context, updatedPool, lendingToken, event.params.assets)
 
+  context.LendingToken.set({
+    ...lendingToken,
+    pendingAssets: event.params.assets,
+    pendingShares: event.params.shares,
+  })
+
   context.Deposit.set({ ...lendingRow(event, pool, lendingToken, ids), isProtocolFee })
 }
 
@@ -384,6 +414,12 @@ export async function handleWithdrawAction(
     sender: event.params.sender,
     action: 'withdraw',
     isPairOriginated: isBadDebtWriteoff,
+  })
+
+  context.LendingToken.set({
+    ...lendingToken,
+    pendingAssets: event.params.assets,
+    pendingShares: event.params.shares,
   })
 
   context.Withdraw.set(lendingRow(event, pool, lendingToken, ids))
@@ -417,6 +453,12 @@ export async function handleBorrowAction(
     )
   }
 
+  context.LendingToken.set({
+    ...lendingToken,
+    pendingAssets: event.params.assets,
+    pendingShares: event.params.shares,
+  })
+
   context.Borrow.set({
     ...lendingRow(event, pool, lendingToken, ids),
     lendingFee: split?.lendingFee,
@@ -439,6 +481,12 @@ export async function handleRepayAction(
     sender: event.params.sender,
     action: 'repay',
     isPairOriginated: isBadDebt,
+  })
+
+  context.LendingToken.set({
+    ...lendingToken,
+    pendingAssets: event.params.assets,
+    pendingShares: event.params.shares,
   })
 
   context.Repay.set(lendingRow(event, pool, lendingToken, ids))

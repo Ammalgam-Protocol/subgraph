@@ -51,6 +51,24 @@ function transfer(from: `0x${string}`, to: `0x${string}`, value: bigint, logInde
   }
 }
 
+function depositAction(
+  sender: `0x${string}`,
+  owner: `0x${string}`,
+  assets: bigint,
+  shares: bigint,
+  logIndex = 0,
+) {
+  return {
+    contract: 'ERC4626Deposit' as const,
+    event: 'Deposit' as const,
+    srcAddress: LEND_X,
+    logIndex,
+    block: { number: 10, timestamp: 100 },
+    transaction: { hash: '0xdep', from: owner },
+    params: { sender, owner, assets, shares },
+  }
+}
+
 describe('lending-token Transfer accounting', () => {
   it('mint (0x0 -> user) credits shares/assets/principal and pool totals; no entity', async () => {
     const indexer = createTestIndexer()
@@ -175,5 +193,62 @@ describe('lending-token Transfer accounting', () => {
     const pool = await indexer.Pool.getOrThrow(POOL_ID)
     expect(pool.totalShares[1]).toBe(0n)
     expect(pool.totalAssets[1]).toBe(0n)
+  })
+
+  it('consumes the exact assets a preceding Deposit stashed, not the floor reconstruction', async () => {
+    const indexer = createTestIndexer()
+    // rate 2 assets/share pre-existing -> floor(2 shares, TA=2, TS=1) = 4, but the Deposit event
+    // carried the exact assets=5 (a legitimate deposit at a slightly different effective rate).
+    seed(indexer, {
+      totalAssets: [0n, 2n, 0n, 0n, 0n, 0n],
+      totalShares: [0n, 1n, 0n, 0n, 0n, 0n],
+    })
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [depositAction(ALICE, ALICE, 5n, 2n, 0), transfer(ZERO, ALICE, 2n, 1)],
+        },
+      },
+    })
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    expect(pool.totalAssets[1]).toBe(7n) // 2 + exact 5, not 2 + floor(4) = 6
+    const lendingToken = await indexer.LendingToken.getOrThrow(LEND_X_ID)
+    expect(lendingToken.pendingAssets).toBeUndefined() // stash cleared after consumption
+    expect(lendingToken.pendingShares).toBeUndefined()
+  })
+
+  it('a mint Transfer with no matching stash falls back to the floor reconstruction', async () => {
+    const indexer = createTestIndexer()
+    seed(indexer, {
+      totalAssets: [0n, 2n, 0n, 0n, 0n, 0n],
+      totalShares: [0n, 1n, 0n, 0n, 0n, 0n],
+    })
+    // No preceding Deposit action -> LendingToken.pendingAssets/pendingShares stay unset.
+    await indexer.process({ chains: { 11155111: { simulate: [transfer(ZERO, ALICE, 2n)] } } })
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    expect(pool.totalAssets[1]).toBe(6n) // 2 + floor(2, 2, 1) = 2 + 4
+  })
+
+  it('the stash is cleared after one consumption; a later Transfer at the same value cannot reuse it', async () => {
+    const indexer = createTestIndexer()
+    seed(indexer, {
+      totalAssets: [0n, 2n, 0n, 0n, 0n, 0n],
+      totalShares: [0n, 1n, 0n, 0n, 0n, 0n],
+    })
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            depositAction(ALICE, ALICE, 5n, 2n, 0),
+            transfer(ZERO, ALICE, 2n, 1), // consumes the stash: totalAssets 2 -> 7
+            transfer(ZERO, BOB, 2n, 2), // same value; stash already cleared -> must use the floor
+          ],
+        },
+      },
+    })
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    // Second mint floors at the post-first-mint rate: toAssets(2, 7, 3) = 4, landing at 11.
+    // A stash leak would incorrectly reuse assets=5 here and land at 12 instead.
+    expect(pool.totalAssets[1]).toBe(11n)
   })
 })
