@@ -55,15 +55,22 @@ Core entities: `Token`, `LendingToken`, `Pool`, `User`, `Position`, plus one ent
 `Position` is one per (user, pool). Reverse relations use `@derivedFrom` (never materialized reverse
 arrays), which also makes cross-event ordering irrelevant.
 
-Reference reserves are the one value not carried by any event payload: the pair emits nothing when
-`referenceReserveX` / `referenceReserveY` move, so the `Sync` handler reads `referenceReserves()`
-over an archive RPC and stores the result on the `Sync` row, with `Pool.referenceReserveX/Y` holding
-the last successful observation. The pair re-anchors along two paths, a proportional rescale in
-`updateReservesAndReference` and a time-gated re-anchor in `updateObservation` (8-second mid-term
-interval), and both run through `updateReserves`, the sole emitter of `Sync`. Sampling on `Sync` is
-therefore the only placement that observes every re-anchor. Reads resolve to end-of-block state and
-are cached per (pair, block), so several `Sync` logs in one block share one RPC call and report the
-same value: see `src/utils/pairEffects.ts`.
+## Fee write path
+
+`accrueFees(context, pool, timestamp, deltas)` in `src/handlers/shared.ts` is the one writer of
+every fee, volume and count column, on both `Pool` (cumulative) and that pool's `PoolDayData` row
+(same column names, one row per UTC day). No other code sets these columns directly.
+
+Three spine rules govern how event handlers feed it:
+
+1. **Exact stash.** Every mint or burn Transfer consumes the exact assets and shares its
+   preceding action log carried (`LendingToken.pendingAssets` / `pendingShares`), not a floor
+   reconstruction.
+2. **Re-derive on every input write.** `totalAssets[DEPOSIT_L]` is recomputed from reserves and
+   the other five totals on every write to any of them, which is how the contract defines it.
+3. **L fee back-out.** The pair-sender L fee mint re-derives `depositL`, subtracts its own
+   `event.assets`, and then its Transfer adds the exact assets back, mirroring
+   `mintProtocolFees(..., true)`: it dilutes shares, it does not grow the total.
 
 ## Accounting spine (the key idea)
 
