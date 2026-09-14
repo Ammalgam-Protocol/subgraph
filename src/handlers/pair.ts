@@ -13,7 +13,9 @@ import {
 import { getEventId, scopedId } from '../utils/id'
 import {
   calculateDepositLiquidityAssets,
+  convertLToXAndY,
   depletionAdjustedActiveLiquidity,
+  missingAssets,
   mulDiv,
   mulDivCeil,
   splitSwapFee,
@@ -69,14 +71,12 @@ indexer.onEvent({ contract: 'AmmalgamPair', event: 'Swap' }, async ({ event, con
   const tokenY = await context.Token.get(pool.tokenY_id)
   if (!tokenX || !tokenY) return
 
-  const missingX =
-    pool.totalAssets[BORROW_X] > pool.totalAssets[DEPOSIT_X]
-      ? pool.totalAssets[BORROW_X] - pool.totalAssets[DEPOSIT_X]
-      : 0n
-  const missingY =
-    pool.totalAssets[BORROW_Y] > pool.totalAssets[DEPOSIT_Y]
-      ? pool.totalAssets[BORROW_Y] - pool.totalAssets[DEPOSIT_Y]
-      : 0n
+  const { missingX, missingY } = missingAssets(
+    pool.totalAssets[BORROW_X],
+    pool.totalAssets[DEPOSIT_X],
+    pool.totalAssets[BORROW_Y],
+    pool.totalAssets[DEPOSIT_Y],
+  )
 
   const reserveXBefore = pool.reserveX
   const reserveYBefore = pool.reserveY
@@ -212,10 +212,18 @@ indexer.onEvent(
     const tokenY = await context.Token.get(pool.tokenY_id)
     if (!tokenX || !tokenY) return
 
-    const grossX = event.params.borrowXAssets - (pool.totalAssets[BORROW_X] ?? 0n)
-    const grossY = event.params.borrowYAssets - (pool.totalAssets[BORROW_Y] ?? 0n)
-    const protocolInterestX = grossX > 0n ? mulDivCeil(grossX, LENDING_FEE_RATE, 100n) : 0n
-    const protocolInterestY = grossY > 0n ? mulDivCeil(grossY, LENDING_FEE_RATE, 100n) : 0n
+    const grossInterest = (post: bigint, pre: bigint, label: string): bigint => {
+      if (post >= pre) return post - pre
+      context.log.warn(`InterestAccrued: negative gross ${label} interest on pool ${poolId}`)
+      return 0n
+    }
+    const grossX = grossInterest(event.params.borrowXAssets, pool.totalAssets[BORROW_X] ?? 0n, 'X')
+    const grossY = grossInterest(event.params.borrowYAssets, pool.totalAssets[BORROW_Y] ?? 0n, 'Y')
+    const grossL = grossInterest(event.params.borrowLAssets, pool.totalAssets[BORROW_L] ?? 0n, 'L')
+
+    const protocolInterestX = mulDivCeil(grossX, LENDING_FEE_RATE, 100n)
+    const protocolInterestY = mulDivCeil(grossY, LENDING_FEE_RATE, 100n)
+    const protocolInterestL = grossL
 
     const depositL = calculateDepositLiquidityAssets(
       event.params.reserveXAssets,
@@ -227,8 +235,61 @@ indexer.onEvent(
       event.params.borrowYAssets,
     )
 
+    const missingBefore = missingAssets(
+      pool.totalAssets[BORROW_X] ?? 0n,
+      pool.totalAssets[DEPOSIT_X] ?? 0n,
+      pool.totalAssets[BORROW_Y] ?? 0n,
+      pool.totalAssets[DEPOSIT_Y] ?? 0n,
+    )
+    const activeLiquidityAssetsBefore = depletionAdjustedActiveLiquidity(
+      pool.reserveX,
+      pool.reserveY,
+      missingBefore.missingX,
+      missingBefore.missingY,
+    )
+    const activeLiquidityAssetsAfter = depositL - event.params.borrowLAssets
+    const lpInterestL =
+      activeLiquidityAssetsAfter > activeLiquidityAssetsBefore
+        ? activeLiquidityAssetsAfter - activeLiquidityAssetsBefore
+        : 0n
+
+    const grossInterestLAsXY = convertLToXAndY(
+      grossL,
+      event.params.reserveXAssets,
+      event.params.reserveYAssets,
+      activeLiquidityAssetsAfter,
+    )
+    const protocolInterestLAsXY = convertLToXAndY(
+      protocolInterestL,
+      event.params.reserveXAssets,
+      event.params.reserveYAssets,
+      activeLiquidityAssetsAfter,
+    )
+    const lpInterestLAsXY = convertLToXAndY(
+      lpInterestL,
+      event.params.reserveXAssets,
+      event.params.reserveYAssets,
+      activeLiquidityAssetsAfter,
+    )
+
+    const updatedPool = await accrueFees(context, pool, event.block.timestamp, {
+      grossInterestTokenX: grossX,
+      grossInterestTokenY: grossY,
+      grossInterestTokenL: grossL,
+      grossInterestTokenLAsX: grossInterestLAsXY.x,
+      grossInterestTokenLAsY: grossInterestLAsXY.y,
+      protocolInterestTokenX: protocolInterestX,
+      protocolInterestTokenY: protocolInterestY,
+      protocolInterestTokenL: protocolInterestL,
+      protocolInterestTokenLAsX: protocolInterestLAsXY.x,
+      protocolInterestTokenLAsY: protocolInterestLAsXY.y,
+      lpInterestTokenL: lpInterestL,
+      lpInterestTokenLAsX: lpInterestLAsXY.x,
+      lpInterestTokenLAsY: lpInterestLAsXY.y,
+    })
+
     context.Pool.set({
-      ...pool,
+      ...updatedPool,
       ...poolPriceFields(tokenX, tokenY, event.params.reserveXAssets, event.params.reserveYAssets),
       totalAssets: [
         depositL,
@@ -238,7 +299,7 @@ indexer.onEvent(
         event.params.borrowXAssets,
         event.params.borrowYAssets,
       ],
-      interestAccruedCount: pool.interestAccruedCount + 1,
+      interestAccruedCount: updatedPool.interestAccruedCount + 1,
     })
 
     context.InterestAccrued.set({
@@ -255,10 +316,10 @@ indexer.onEvent(
       borrowLAssets: event.params.borrowLAssets,
       borrowXAssets: event.params.borrowXAssets,
       borrowYAssets: event.params.borrowYAssets,
-      grossInterestX: 0n,
-      grossInterestY: 0n,
-      grossInterestL: 0n,
-      lpInterestL: 0n,
+      grossInterestX: grossX,
+      grossInterestY: grossY,
+      grossInterestL: grossL,
+      lpInterestL,
     })
   },
 )

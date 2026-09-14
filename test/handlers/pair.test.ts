@@ -316,6 +316,187 @@ describe('pair handlers', () => {
     expect(pool.totalAssets[0]).toBe(100n)
   })
 
+  it('InterestAccrued writes gross, protocol, and lp interest with L twins to Pool and PoolDayData', async () => {
+    const indexer = createTestIndexer()
+    seedPool(indexer, {
+      totalAssets: [500n, 100n, 200n, 50n, 150n, 300n],
+      reserveX: 1000n,
+      reserveY: 2000n,
+    })
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'AmmalgamPair',
+              event: 'InterestAccrued',
+              srcAddress: POOL,
+              logIndex: 0,
+              block: { number: 30, timestamp: 100000 },
+              transaction: { hash: '0xintl1', from: FROM },
+              params: {
+                reserveXAssets: 1100n,
+                reserveYAssets: 2100n,
+                depositXAssets: 100n,
+                depositYAssets: 200n,
+                // gross L = 60 - 50(pre) = 10 -> protocolInterestL = 10 (whole gross, no LP split)
+                borrowLAssets: 60n,
+                // gross X = 165 - 150(pre) = 15 -> protocolInterestX = ceil(15*10/100) = 2
+                borrowXAssets: 165n,
+                // gross Y = 320 - 300(pre) = 20 -> protocolInterestY = ceil(20*10/100) = 2
+                borrowYAssets: 320n,
+              },
+            },
+          ],
+        },
+      },
+    })
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    expect(pool.grossInterestTokenX).toBe(15n)
+    expect(pool.grossInterestTokenY).toBe(20n)
+    expect(pool.grossInterestTokenL).toBe(10n)
+    expect(pool.protocolInterestTokenX).toBe(2n)
+    expect(pool.protocolInterestTokenY).toBe(2n)
+    expect(pool.protocolInterestTokenL).toBe(10n)
+    // activeLiquidityAssetsBefore = isqrt(1000*2000) = 1414 (pre-state missing: X=50, Y=100).
+    // activeLiquidityAssetsAfter = depositL(1579) - borrowLAssets(60) = 1519.
+    // lpInterestL = 1519 - 1414 = 105, the reserve share of X/Y interest stored in L.
+    expect(pool.lpInterestTokenL).toBe(105n)
+    // L twins convert at activeLiquidityAssetsAfter(1519) and the event's own reserves.
+    expect(pool.grossInterestTokenLAsX).toBe(7n)
+    expect(pool.grossInterestTokenLAsY).toBe(13n)
+    expect(pool.protocolInterestTokenLAsX).toBe(7n)
+    expect(pool.protocolInterestTokenLAsY).toBe(13n)
+    expect(pool.lpInterestTokenLAsX).toBe(76n)
+    expect(pool.lpInterestTokenLAsY).toBe(145n)
+
+    const dayData = await indexer.PoolDayData.getOrThrow(`${POOL_ID}-86400`)
+    expect(dayData.grossInterestTokenX).toBe(15n)
+    expect(dayData.protocolInterestTokenL).toBe(10n)
+    expect(dayData.lpInterestTokenLAsY).toBe(145n)
+  })
+
+  it('InterestAccrued: protocolInterestToken* never exceeds grossInterestToken*', async () => {
+    const indexer = createTestIndexer()
+    seedPool(indexer, {
+      totalAssets: [500n, 100n, 200n, 50n, 150n, 300n],
+      reserveX: 1000n,
+      reserveY: 2000n,
+    })
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'AmmalgamPair',
+              event: 'InterestAccrued',
+              srcAddress: POOL,
+              logIndex: 0,
+              block: { number: 30, timestamp: 100000 },
+              transaction: { hash: '0xintl2', from: FROM },
+              params: {
+                reserveXAssets: 1100n,
+                reserveYAssets: 2100n,
+                depositXAssets: 100n,
+                depositYAssets: 200n,
+                borrowLAssets: 60n,
+                borrowXAssets: 165n,
+                borrowYAssets: 320n,
+              },
+            },
+          ],
+        },
+      },
+    })
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    expect(pool.protocolInterestTokenX <= pool.grossInterestTokenX).toBe(true)
+    expect(pool.protocolInterestTokenY <= pool.grossInterestTokenY).toBe(true)
+    expect(pool.protocolInterestTokenL <= pool.grossInterestTokenL).toBe(true)
+  })
+
+  it('InterestAccrued: zero-interest accrual writes zeros, not nulls', async () => {
+    const indexer = createTestIndexer()
+    seedPool(indexer, {
+      totalAssets: [500n, 100n, 200n, 50n, 150n, 300n],
+      reserveX: 1000n,
+      reserveY: 2000n,
+    })
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'AmmalgamPair',
+              event: 'InterestAccrued',
+              srcAddress: POOL,
+              logIndex: 0,
+              block: { number: 30, timestamp: 100000 },
+              transaction: { hash: '0xintl3', from: FROM },
+              params: {
+                // Reserves and borrows match the pre-state exactly: no interest accrued.
+                reserveXAssets: 1000n,
+                reserveYAssets: 2000n,
+                depositXAssets: 100n,
+                depositYAssets: 200n,
+                borrowLAssets: 50n,
+                borrowXAssets: 150n,
+                borrowYAssets: 300n,
+              },
+            },
+          ],
+        },
+      },
+    })
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    expect(pool.grossInterestTokenX).toBe(0n)
+    expect(pool.grossInterestTokenY).toBe(0n)
+    expect(pool.grossInterestTokenL).toBe(0n)
+    expect(pool.protocolInterestTokenX).toBe(0n)
+    expect(pool.protocolInterestTokenY).toBe(0n)
+    expect(pool.protocolInterestTokenL).toBe(0n)
+    expect(pool.lpInterestTokenL).toBe(0n)
+    expect(pool.grossInterestTokenLAsX).toBe(0n)
+    expect(pool.lpInterestTokenLAsY).toBe(0n)
+  })
+
+  it('InterestAccrued: a negative borrow delta clamps gross interest at 0', async () => {
+    const indexer = createTestIndexer()
+    seedPool(indexer, {
+      totalAssets: [500n, 100n, 200n, 50n, 150n, 300n],
+      reserveX: 1000n,
+      reserveY: 2000n,
+    })
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'AmmalgamPair',
+              event: 'InterestAccrued',
+              srcAddress: POOL,
+              logIndex: 0,
+              block: { number: 30, timestamp: 100000 },
+              transaction: { hash: '0xintl4', from: FROM },
+              params: {
+                reserveXAssets: 1000n,
+                reserveYAssets: 2000n,
+                depositXAssets: 100n,
+                depositYAssets: 200n,
+                borrowLAssets: 50n,
+                // borrowXAssets(140) < pre totalAssets[BORROW_X](150): a would-be-negative gross.
+                borrowXAssets: 140n,
+                borrowYAssets: 300n,
+              },
+            },
+          ],
+        },
+      },
+    })
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    expect(pool.grossInterestTokenX).toBe(0n)
+    expect(pool.protocolInterestTokenX).toBe(0n)
+  })
+
   it('Sync recomputes totalAssets[DEPOSIT_L] from new reserves (D10)', async () => {
     const indexer = createTestIndexer()
     seedPool(indexer, { totalAssets: [700n, 500n, 600n, 100n, 200n, 50n] })

@@ -45,14 +45,14 @@ export function convertYToL(amountY: bigint, reserveY: bigint, activeLiquidity: 
   return (amountY * activeLiquidity) / reserveY
 }
 
-export function convertLToX(amountL: bigint, reserveX: bigint, activeLiquidity: bigint): bigint {
-  if (activeLiquidity === 0n) return 0n
-  return (amountL * reserveX) / activeLiquidity
-}
-
-export function convertLToY(amountL: bigint, reserveY: bigint, activeLiquidity: bigint): bigint {
-  if (activeLiquidity === 0n) return 0n
-  return (amountL * reserveY) / activeLiquidity
+export function convertLToXAndY(
+  amountL: bigint,
+  reserveX: bigint,
+  reserveY: bigint,
+  activeLiquidity: bigint,
+): { x: bigint; y: bigint } {
+  if (activeLiquidity === 0n) return { x: 0n, y: 0n }
+  return { x: (amountL * reserveX) / activeLiquidity, y: (amountL * reserveY) / activeLiquidity }
 }
 
 export function mulDiv(a: bigint, b: bigint, denominator: bigint): bigint {
@@ -118,6 +118,18 @@ export function swapFeeGrowth(
   return growth > 0n ? growth : 0n
 }
 
+export function missingAssets(
+  borrowX: bigint,
+  depositX: bigint,
+  borrowY: bigint,
+  depositY: bigint,
+): { missingX: bigint; missingY: bigint } {
+  return {
+    missingX: borrowX > depositX ? borrowX - depositX : 0n,
+    missingY: borrowY > depositY ? borrowY - depositY : 0n,
+  }
+}
+
 // depositL = depletion-adjusted active liquidity + borrowL
 export function calculateDepositLiquidityAssets(
   reserveX: bigint,
@@ -128,8 +140,7 @@ export function calculateDepositLiquidityAssets(
   borrowX: bigint,
   borrowY: bigint,
 ): bigint {
-  const missingX = borrowX > depositX ? borrowX - depositX : 0n
-  const missingY = borrowY > depositY ? borrowY - depositY : 0n
+  const { missingX, missingY } = missingAssets(borrowX, depositX, borrowY, depositY)
   return depletionAdjustedActiveLiquidity(reserveX, reserveY, missingX, missingY) + borrowL
 }
 

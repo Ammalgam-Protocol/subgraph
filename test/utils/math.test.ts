@@ -3,14 +3,14 @@ import { describe, expect, it } from 'vitest'
 import {
   calculateDepositLiquidityAssets,
   calculateSwapFeeReserve,
-  convertLToX,
-  convertLToY,
+  convertLToXAndY,
   convertTokenToDecimal,
   convertXToL,
   convertYToL,
   depletionAdjustedActiveLiquidity,
   exponentToBigDecimal,
   isqrt,
+  missingAssets,
   mulDiv,
   mulDivCeil,
   ONE_BD,
@@ -158,14 +158,22 @@ describe('splitLendingFee', () => {
   })
 })
 
-describe('convertLToX', () => {
-  it('converts L to X at the reserve ratio', () => expect(convertLToX(100n, 500n, 200n)).toBe(250n))
-  it('returns 0 when activeLiquidity is 0', () => expect(convertLToX(100n, 500n, 0n)).toBe(0n))
+describe('convertLToXAndY', () => {
+  it('converts L to X and Y at the reserve ratio', () => {
+    expect(convertLToXAndY(100n, 500n, 500n, 200n)).toEqual({ x: 250n, y: 250n })
+  })
+  it('returns 0/0 when activeLiquidity is 0', () => {
+    expect(convertLToXAndY(100n, 500n, 500n, 0n)).toEqual({ x: 0n, y: 0n })
+  })
 })
 
-describe('convertLToY', () => {
-  it('converts L to Y at the reserve ratio', () => expect(convertLToY(100n, 500n, 200n)).toBe(250n))
-  it('returns 0 when activeLiquidity is 0', () => expect(convertLToY(100n, 500n, 0n)).toBe(0n))
+describe('missingAssets', () => {
+  it('returns 0 on a leg where deposits cover borrows', () => {
+    expect(missingAssets(80n, 100n, 90n, 50n)).toEqual({ missingX: 0n, missingY: 40n })
+  })
+  it('returns 0/0 when both legs are fully covered', () => {
+    expect(missingAssets(50n, 100n, 20n, 100n)).toEqual({ missingX: 0n, missingY: 0n })
+  })
 })
 
 describe('calculateSwapFeeReserve', () => {

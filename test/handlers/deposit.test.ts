@@ -137,8 +137,11 @@ describe('deposit handlers', () => {
     const pool = await indexer.Pool.getOrThrow(POOL_ID)
     expect(pool.withdrawCount).toBe(0)
     expect(pool.txCount).toBe(0)
+    expect(pool.positionCount).toBe(0)
     const pairPosition = await indexer.Position.getOrThrow(getPositionId(POOL_ID, POOL_ID))
     expect(pairPosition.withdrawCount).toBe(0)
+    const pairUser = await indexer.User.getOrThrow(POOL_ID)
+    expect(pairUser.positionCount).toBe(0)
     // The event row is still written: the writeoff happened, it just is not user activity.
     const withdraw = await indexer.Withdraw.getOrThrow(getEventId(CHAIN, '0xbd', 0))
     expect(withdraw.amount).toBe(20n)

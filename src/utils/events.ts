@@ -9,6 +9,7 @@ export type EventHeaderSource = {
 
 function header(event: EventHeaderSource) {
   return {
+    id: getEventId(event.chainId, event.transaction.hash, event.logIndex),
     hash: event.transaction.hash,
     logIndex: event.logIndex,
     blockNumber: BigInt(event.block.number),
@@ -29,7 +30,6 @@ export function lendingEventFields(
   },
 ) {
   return {
-    id: getEventId(event.chainId, event.transaction.hash, event.logIndex),
     ...header(event),
     user_id: args.userId,
     from_id: args.senderId,
@@ -55,7 +55,6 @@ export function transferEventFields(
   },
 ) {
   return {
-    id: getEventId(event.chainId, event.transaction.hash, event.logIndex),
     ...header(event),
     sender_id: args.senderId,
     receiver_id: args.receiverId,

@@ -59,6 +59,8 @@ type Pool {
   protocolInterestTokenL: BigInt!
   protocolInterestTokenLAsX: BigInt!
   protocolInterestTokenLAsY: BigInt!
+  # Already counted in grossInterestTokenX/Y (the reserve share of X/Y interest, stored in L).
+  # Excluded here to avoid double counting in the fee adapter query.
   lpInterestTokenL: BigInt!
   lpInterestTokenLAsX: BigInt!
   lpInterestTokenLAsY: BigInt!
@@ -108,6 +110,8 @@ type PoolDayData {
   protocolInterestTokenL: BigInt!
   protocolInterestTokenLAsX: BigInt!
   protocolInterestTokenLAsY: BigInt!
+  # Already counted in grossInterestTokenX/Y (the reserve share of X/Y interest, stored in L).
+  # Excluded here to avoid double counting in the fee adapter query.
   lpInterestTokenL: BigInt!
   lpInterestTokenLAsX: BigInt!
   lpInterestTokenLAsY: BigInt!

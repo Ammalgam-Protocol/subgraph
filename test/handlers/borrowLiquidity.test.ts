@@ -63,6 +63,60 @@ describe('borrowLiquidity handlers', () => {
     expect(borrow.amount).toBe(400n)
   })
 
+  it('a pair-sender penalty accrues to penaltiesTokenL with L twins at activeBefore, bumping no user counter', async () => {
+    const indexer = createTestIndexer()
+    indexer.LendingToken.set({
+      id: DEBT_L_ID,
+      symbol: 'dLP',
+      name: 'Debt LP',
+      decimals: 18,
+      pool_id: POOL_ID,
+      tokenType: 3, // BORROW_L
+      pendingAssets: undefined,
+      pendingShares: undefined,
+    })
+    indexer.Pool.set({
+      ...createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n),
+      reserveX: 1000n,
+      reserveY: 4000n,
+      totalAssets: [0n, 0n, 0n, 1000n, 0n, 0n],
+    })
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'ERC20DebtLiquidity',
+              event: 'BorrowLiquidity',
+              srcAddress: DEBT_L,
+              logIndex: 0,
+              block: { number: 11, timestamp: 100 },
+              transaction: { hash: '0xpen', from: SENDER },
+              params: { sender: POOL, to: POOL, assets: 10n, shares: 10n },
+            },
+          ],
+        },
+      },
+    })
+
+    // No missing leg (no X/Y borrows seeded): activeBefore = isqrt(1000*4000) = 2000 exactly.
+    // penalty 10 L -> x = 10*1000/2000 = 5, y = 10*4000/2000 = 20.
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    expect(pool.penaltiesTokenL.toString()).toBe('10')
+    expect(pool.penaltiesTokenLAsX.toString()).toBe('5')
+    expect(pool.penaltiesTokenLAsY.toString()).toBe('20')
+    expect(pool.borrowCount).toBe(0)
+    expect(pool.txCount).toBe(0)
+    expect(pool.positionCount).toBe(0)
+
+    const pairPositionId = getPositionId(POOL_ID, POOL_ID)
+    const position = await indexer.Position.getOrThrow(pairPositionId)
+    expect(position.borrowCount).toBe(0)
+    const pairUser = await indexer.User.getOrThrow(POOL_ID)
+    expect(pairUser.borrowCount).toBe(0)
+    expect(pairUser.positionCount).toBe(0)
+  })
+
   it('RepayLiquidity attributes to the raw onBehalfOf (no rewrite) and bumps counters', async () => {
     const indexer = createTestIndexer()
     seed(indexer)

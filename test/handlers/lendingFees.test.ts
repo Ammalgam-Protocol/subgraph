@@ -1,7 +1,7 @@
 import { createTestIndexer } from 'envio'
 import { describe, expect, it } from 'vitest'
 
-import { getEventId, getPositionId, scopedId } from '../../src/utils/id'
+import { getEventId, scopedId } from '../../src/utils/id'
 import { createDefaultPool } from '../../src/utils/pool'
 
 const CHAIN = 11155111
@@ -68,8 +68,6 @@ describe('lending fee derivation', () => {
     const borrow = await indexer.Borrow.getOrThrow(getEventId(CHAIN, '0xlf1', 0))
     expect(borrow.lendingFee).toBe(FEE)
     expect(borrow.isPenalty).toBe(false)
-    const pool = await indexer.Pool.getOrThrow(POOL_ID)
-    expect(pool.penaltiesTokenL.toString()).toBe('0')
   })
 
   it('BorrowLiquidity splits out the fee onto the row, with no pool-level accrual', async () => {
@@ -95,8 +93,6 @@ describe('lending fee derivation', () => {
     const borrow = await indexer.Borrow.getOrThrow(getEventId(CHAIN, '0xlf2', 0))
     expect(borrow.lendingFee).toBe(FEE)
     expect(borrow.isPenalty).toBe(false)
-    const pool = await indexer.Pool.getOrThrow(POOL_ID)
-    expect(pool.penaltiesTokenL.toString()).toBe('0')
   })
 
   // Penalties reach this handler as pair-sender BorrowLiquidity with no 5-bip fee;
@@ -124,41 +120,6 @@ describe('lending fee derivation', () => {
     const borrow = await indexer.Borrow.getOrThrow(getEventId(CHAIN, '0xlf4', 0))
     expect(borrow.isPenalty).toBe(true)
     expect(borrow.lendingFee).toBeUndefined()
-    const pool = await indexer.Pool.getOrThrow(POOL_ID)
-    expect(pool.penaltiesTokenL.toString()).toBe('2001000000000000000')
-  })
-
-  it('keeps a Position for the pair without counting the penalty as a borrow', async () => {
-    const indexer = createTestIndexer()
-    seed(indexer)
-    await indexer.process({
-      chains: {
-        11155111: {
-          simulate: [
-            {
-              contract: 'ERC20DebtLiquidity',
-              event: 'BorrowLiquidity',
-              srcAddress: DEBT_L,
-              logIndex: 0,
-              block: { number: 10, timestamp: 100 },
-              transaction: { hash: '0xlf6', from: OWNER },
-              params: { sender: POOL, to: POOL, assets: AMOUNT, shares: 1n },
-            },
-          ],
-        },
-      },
-    })
-    const pool = await indexer.Pool.getOrThrow(POOL_ID)
-    expect(pool.borrowCount).toBe(0)
-    expect(pool.txCount).toBe(0)
-    expect(pool.positionCount).toBe(1) // sanity: the Position is still written
-    expect(pool.penaltiesTokenL.toString()).toBe('2001000000000000000') // sanity: not vacuous
-
-    const position = await indexer.Position.getOrThrow(getPositionId(POOL_ID, POOL_ID))
-    expect(position.borrowCount).toBe(0)
-    const user = await indexer.User.getOrThrow(POOL_ID)
-    expect(user.borrowCount).toBe(0)
-    expect(user.positionCount).toBe(1)
   })
 
   // mintPenalties only mints BORROW_L, so tokenX/tokenY debt has no penalty path at all.
@@ -185,8 +146,6 @@ describe('lending fee derivation', () => {
     const borrow = await indexer.Borrow.getOrThrow(getEventId(CHAIN, '0xlf5', 0))
     expect(borrow.isPenalty).toBe(false)
     expect(borrow.lendingFee).toBe(FEE)
-    const pool = await indexer.Pool.getOrThrow(POOL_ID)
-    expect(pool.penaltiesTokenL.toString()).toBe('0')
   })
 
   it('leaves lendingFee null when no principal solves the fee equation', async () => {
@@ -213,7 +172,5 @@ describe('lending fee derivation', () => {
     const borrow = await indexer.Borrow.getOrThrow(getEventId(CHAIN, '0xlf3', 0))
     expect(borrow.lendingFee).toBeUndefined()
     expect(borrow.isPenalty).toBe(false)
-    const pool = await indexer.Pool.getOrThrow(POOL_ID)
-    expect(pool.penaltiesTokenL.toString()).toBe('0')
   })
 })

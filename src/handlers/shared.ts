@@ -15,6 +15,9 @@ import { type EventHeaderSource, lendingEventFields, transferEventFields } from 
 import { getPositionId, scopedId } from '../utils/id'
 import {
   calculateDepositLiquidityAssets,
+  convertLToXAndY,
+  depletionAdjustedActiveLiquidity,
+  missingAssets,
   principalContribution,
   splitLendingFee,
   toAssets,
@@ -80,6 +83,10 @@ async function getOrCreatePosition(
 ) {
   let user = await getOrCreateUser(context, userId)
 
+  // Recipient == pool.id only for penalty mints and bad-debt writeoffs, which are bookkeeping,
+  // not participation: the Position row still writes for accounting, but positionCount skips it.
+  const isPairPosition = userId === pool.id
+
   const positionId = getPositionId(userId, pool.id)
   let position = await context.Position.get(positionId)
   let newPositions = 0
@@ -91,15 +98,17 @@ async function getOrCreatePosition(
       BigInt(event.block.number),
       BigInt(event.block.timestamp),
     )
-    user = { ...user, positionCount: user.positionCount + 1 }
-    newPositions = 1
+    if (!isPairPosition) {
+      user = { ...user, positionCount: user.positionCount + 1 }
+      newPositions = 1
+    }
   }
 
   return { user, position, positionId, newPositions }
 }
 
 // Shared by the 8 pool lending action handlers: counters + entities only.
-// `isPairOriginated` still writes the Position and User rows, but skips every counter.
+// `isPairOriginated` skips the action counter (depositCount/borrowCount/...) and txCount.
 async function handleLendingAction(
   context: EvmOnEventContext,
   event: EventHeaderSource,
@@ -428,9 +437,23 @@ export async function handleDepositAction(
   if (isProtocolFee) {
     const field = PROTOCOL_FEE_FIELDS[lendingToken.tokenType]
     if (field) {
-      updatedPool = await accrueFees(context, updatedPool, event.block.timestamp, {
-        [field]: event.params.assets,
-      })
+      let deltas: PoolFeeDelta = { [field]: event.params.assets }
+
+      // L fees have no native X/Y split, so twin the mint into both legs
+      if (lendingToken.tokenType === DEPOSIT_L) {
+        const derivedTotalAssets = updateAssets(updatedPool)
+        const activeLiquidity =
+          (derivedTotalAssets[DEPOSIT_L] ?? 0n) - (updatedPool.totalAssets[BORROW_L] ?? 0n)
+        const feeAsXY = convertLToXAndY(
+          event.params.assets,
+          updatedPool.reserveX,
+          updatedPool.reserveY,
+          activeLiquidity,
+        )
+        deltas = { ...deltas, protocolFeesTokenLAsX: feeAsXY.x, protocolFeesTokenLAsY: feeAsXY.y }
+      }
+
+      updatedPool = await accrueFees(context, updatedPool, event.block.timestamp, deltas)
     } else {
       context.log.warn(`no protocol fee column for tokenType ${lendingToken.tokenType}`)
     }
@@ -470,7 +493,7 @@ export async function handleWithdrawAction(
   // the writeoff: liquidation burns leftover collateral to the pair itself.
   const isBadDebtWriteoff = isPairAddress(event.chainId, recipient, pool)
 
-  const ids = await handleLendingAction(context, event, pool, {
+  const { pool: _pool, ...ids } = await handleLendingAction(context, event, pool, {
     recipient,
     sender: event.params.sender,
     action: 'withdraw',
@@ -506,8 +529,29 @@ export async function handleBorrowAction(
 
   const split = isPenalty ? undefined : splitLendingFee(event.params.assets)
   if (isPenalty) {
+    // Penalties mint as borrow L to the pair
+    const { missingX, missingY } = missingAssets(
+      pool.totalAssets[BORROW_X] ?? 0n,
+      pool.totalAssets[DEPOSIT_X] ?? 0n,
+      pool.totalAssets[BORROW_Y] ?? 0n,
+      pool.totalAssets[DEPOSIT_Y] ?? 0n,
+    )
+    const activeBefore = depletionAdjustedActiveLiquidity(
+      pool.reserveX,
+      pool.reserveY,
+      missingX,
+      missingY,
+    )
+    const penaltyAsXY = convertLToXAndY(
+      event.params.assets,
+      pool.reserveX,
+      pool.reserveY,
+      activeBefore,
+    )
     await accrueFees(context, updatedPool, event.block.timestamp, {
       penaltiesTokenL: event.params.assets,
+      penaltiesTokenLAsX: penaltyAsXY.x,
+      penaltiesTokenLAsY: penaltyAsXY.y,
     })
   } else if (!split) {
     // INITIAL_LENDING_FEE_BIPS changed upstream; null beats a wrong number.
@@ -539,7 +583,7 @@ export async function handleRepayAction(
   // pair.ts already records the writeoff as BurnBadDebt, so counting it would double it.
   const isBadDebt = isPairSender(event, pool)
 
-  const ids = await handleLendingAction(context, event, pool, {
+  const { pool: _pool, ...ids } = await handleLendingAction(context, event, pool, {
     recipient,
     sender: event.params.sender,
     action: 'repay',
