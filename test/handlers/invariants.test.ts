@@ -883,10 +883,10 @@ describe('ledger identity (D8): mixed sequence', () => {
               },
               2,
             ),
-            // The pair-sender L fee mint realizes protocolInterestTokenL (500): its fee backout
-            // and this Transfer's add cancel, so gross/protocol interest net to zero on depositL.
-            mintLAction(POOL, FEE_TO, 500n, 500n, 3),
-            depositLTransfer(ZERO, FEE_TO, 500n, 4),
+            // gross L 500 mints protocol L 50: the fee backout and Transfer add cancel, leaving
+            // net L interest for holders.
+            mintLAction(POOL, FEE_TO, 50n, 50n, 3),
+            depositLTransfer(ZERO, FEE_TO, 50n, 4),
             // Penalty: 200 L minted as borrow L to the pair itself.
             borrowLAction(POOL, POOL, 200n, 200n, 5),
             debtLiquidityTransfer(ZERO, POOL, 200n, 6),
@@ -974,8 +974,71 @@ describe('cross-column invariants', () => {
       row[`grossInterestTokenLAs${leg}`] +
       borrowerFees +
       row[`penaltiesTokenLAs${leg}`]
-    return { dailyFees, protocolRevenue }
+    return { borrowerFees, dailyFees, protocolRevenue }
   }
+
+  it('pure-L interest preserves the documented consumer identity for Pool and PoolDayData', async () => {
+    const indexer = createTestIndexer()
+    seedTokens(indexer)
+    seedLendingToken(indexer, LEND_L_ID, POOL_ID, 0)
+    seedPool(indexer, {
+      reserveX: 1000n,
+      reserveY: 1000n,
+      totalAssets: [1000n, 500n, 500n, 0n, 0n, 0n],
+      totalShares: [1000n, 500n, 500n, 0n, 0n, 0n],
+    })
+    const block = { number: 10, timestamp: 100 }
+
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            interestAccruedEvent(
+              {
+                reserveXAssets: 1000n,
+                reserveYAssets: 1000n,
+                depositXAssets: 500n,
+                depositYAssets: 500n,
+                borrowLAssets: 100n,
+                borrowXAssets: 0n,
+                borrowYAssets: 0n,
+              },
+              0,
+              block,
+            ),
+            syncEvent(1000n, 1000n, 1, block),
+            mintLAction(POOL, FEE_TO, 10n, 10n, 2, block),
+            depositLTransfer(ZERO, FEE_TO, 10n, 3, block),
+          ],
+        },
+      },
+    })
+
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    const dayData = await indexer.PoolDayData.getOrThrow(`${POOL_ID}-0`)
+
+    // Pure-L accrual (no X/Y interest) must still satisfy the Pool/PoolDayData consumer
+    // identity: dailyFees - protocolRevenue is the LP's share.
+    for (const row of [pool, dayData]) {
+      expect(row.grossInterestTokenL).toBe(100n)
+      expect(row.grossInterestTokenLAsX).toBe(100n)
+      expect(row.grossInterestTokenLAsY).toBe(100n)
+      expect(row.protocolInterestTokenL).toBe(10n)
+      expect(row.protocolInterestTokenLAsX).toBe(10n)
+      expect(row.protocolInterestTokenLAsY).toBe(10n)
+      expect(row.protocolFeesTokenL).toBe(10n)
+      expect(row.protocolFeesTokenLAsX).toBe(10n)
+      expect(row.protocolFeesTokenLAsY).toBe(10n)
+
+      for (const leg of ['X', 'Y'] as const) {
+        const { borrowerFees, dailyFees, protocolRevenue } = dailyFeesAndRevenue(row, leg)
+        expect(protocolRevenue).toBe(10n)
+        expect(borrowerFees).toBe(0n)
+        expect(dailyFees).toBe(100n)
+        expect(dailyFees - protocolRevenue).toBe(90n)
+      }
+    }
+  })
 
   it('dailyFees >= protocolRevenue, and protocolInterestToken* <= protocolFeesToken* and <= grossInterestToken*, for X, Y, L', async () => {
     const indexer = createTestIndexer()
@@ -1015,7 +1078,7 @@ describe('cross-column invariants', () => {
             depositTransfer(ZERO, FEE_TO, 250n, 4),
             depositAction(LEND_Y, POOL, FEE_TO, 200n, 200n, 5),
             erc4626Transfer(LEND_Y, ZERO, FEE_TO, 200n, 6),
-            // protocolFeesTokenL minted strictly above protocolInterestTokenL (500).
+            // protocolFeesTokenL is strictly above protocolInterestTokenL (50).
             mintLAction(POOL, FEE_TO, 550n, 550n, 7),
             depositLTransfer(ZERO, FEE_TO, 550n, 8),
             borrowLAction(POOL, POOL, 100n, 100n, 9),

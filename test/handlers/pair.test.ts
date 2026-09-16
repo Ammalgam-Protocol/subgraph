@@ -339,7 +339,7 @@ describe('pair handlers', () => {
                 reserveYAssets: 2100n,
                 depositXAssets: 100n,
                 depositYAssets: 200n,
-                // gross L = 60 - 50(pre) = 10 -> protocolInterestL = 10 (whole gross, no LP split)
+                // gross L = 60 - 50(pre) = 10; protocolInterestL = ceil(10 * 10%) = 1, same rate as X/Y.
                 borrowLAssets: 60n,
                 // gross X = 165 - 150(pre) = 15 -> protocolInterestX = ceil(15*10/100) = 2
                 borrowXAssets: 165n,
@@ -357,7 +357,7 @@ describe('pair handlers', () => {
     expect(pool.grossInterestTokenL).toBe(10n)
     expect(pool.protocolInterestTokenX).toBe(2n)
     expect(pool.protocolInterestTokenY).toBe(2n)
-    expect(pool.protocolInterestTokenL).toBe(10n)
+    expect(pool.protocolInterestTokenL).toBe(1n)
     // activeLiquidityAssetsBefore = isqrt(1000*2000) = 1414 (pre-state missing: X=50, Y=100).
     // activeLiquidityAssetsAfter = depositL(1579) - borrowLAssets(60) = 1519.
     // lpInterestL = 1519 - 1414 = 105, the reserve share of X/Y interest stored in L.
@@ -365,14 +365,14 @@ describe('pair handlers', () => {
     // L twins convert at activeLiquidityAssetsAfter(1519) and the event's own reserves.
     expect(pool.grossInterestTokenLAsX).toBe(7n)
     expect(pool.grossInterestTokenLAsY).toBe(13n)
-    expect(pool.protocolInterestTokenLAsX).toBe(7n)
-    expect(pool.protocolInterestTokenLAsY).toBe(13n)
+    expect(pool.protocolInterestTokenLAsX).toBe(0n)
+    expect(pool.protocolInterestTokenLAsY).toBe(1n)
     expect(pool.lpInterestTokenLAsX).toBe(76n)
     expect(pool.lpInterestTokenLAsY).toBe(145n)
 
     const dayData = await indexer.PoolDayData.getOrThrow(`${POOL_ID}-86400`)
     expect(dayData.grossInterestTokenX).toBe(15n)
-    expect(dayData.protocolInterestTokenL).toBe(10n)
+    expect(dayData.protocolInterestTokenL).toBe(1n)
     expect(dayData.lpInterestTokenLAsY).toBe(145n)
   })
 
@@ -457,6 +457,185 @@ describe('pair handlers', () => {
     expect(pool.lpInterestTokenL).toBe(0n)
     expect(pool.grossInterestTokenLAsX).toBe(0n)
     expect(pool.lpInterestTokenLAsY).toBe(0n)
+    expect(pool.protocolInterestTokenLAsX).toBe(0n)
+    expect(pool.protocolInterestTokenLAsY).toBe(0n)
+  })
+
+  it('InterestAccrued rounds protocol L interest up on a remainder', async () => {
+    const indexer = createTestIndexer()
+    seedPool(indexer, {
+      totalAssets: [1000n, 500n, 500n, 0n, 0n, 0n],
+      reserveX: 1000n,
+      reserveY: 1000n,
+    })
+
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'AmmalgamPair',
+              event: 'InterestAccrued',
+              srcAddress: POOL,
+              logIndex: 0,
+              block: { number: 31, timestamp: 100100 },
+              transaction: { hash: '0xintl4', from: FROM },
+              params: {
+                reserveXAssets: 1000n,
+                reserveYAssets: 1000n,
+                depositXAssets: 500n,
+                depositYAssets: 500n,
+                borrowLAssets: 11n,
+                borrowXAssets: 0n,
+                borrowYAssets: 0n,
+              },
+            },
+          ],
+        },
+      },
+    })
+
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    // gross L 11 rounds up: ceil(11 * 10%) = 2, not floor's 1.
+    expect(pool.grossInterestTokenL).toBe(11n)
+    expect(pool.protocolInterestTokenL).toBe(2n)
+    expect(pool.protocolInterestTokenLAsX).toBe(2n)
+    expect(pool.protocolInterestTokenLAsY).toBe(2n)
+  })
+
+  it('InterestAccrued rounds each same-day accrual before accumulation', async () => {
+    const indexer = createTestIndexer()
+    seedPool(indexer, {
+      totalAssets: [1000n, 500n, 500n, 0n, 0n, 0n],
+      reserveX: 1000n,
+      reserveY: 1000n,
+    })
+    const block = { number: 32, timestamp: 100200 }
+
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'AmmalgamPair',
+              event: 'InterestAccrued',
+              srcAddress: POOL,
+              logIndex: 0,
+              block,
+              transaction: { hash: '0xintl5', from: FROM },
+              params: {
+                reserveXAssets: 1000n,
+                reserveYAssets: 1000n,
+                depositXAssets: 500n,
+                depositYAssets: 500n,
+                borrowLAssets: 1n,
+                borrowXAssets: 0n,
+                borrowYAssets: 0n,
+              },
+            },
+            {
+              contract: 'AmmalgamPair',
+              event: 'InterestAccrued',
+              srcAddress: POOL,
+              logIndex: 1,
+              block,
+              transaction: { hash: '0xintl5', from: FROM },
+              params: {
+                reserveXAssets: 1000n,
+                reserveYAssets: 1000n,
+                depositXAssets: 500n,
+                depositYAssets: 500n,
+                borrowLAssets: 2n,
+                borrowXAssets: 0n,
+                borrowYAssets: 0n,
+              },
+            },
+          ],
+        },
+      },
+    })
+
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    const dayData = await indexer.PoolDayData.getOrThrow(`${POOL_ID}-86400`)
+    // Two same-day accruals of gross L 1 each round independently: ceil(1*10%) twice = 2, not
+    // ceil(2*10%) = 1 if summed first.
+    expect(pool.grossInterestTokenL).toBe(2n)
+    expect(pool.protocolInterestTokenL).toBe(2n)
+    expect(dayData.grossInterestTokenL).toBe(2n)
+    expect(dayData.protocolInterestTokenL).toBe(2n)
+  })
+
+  it('InterestAccrued reconciles independently rounded accruals across UTC days', async () => {
+    const indexer = createTestIndexer()
+    seedPool(indexer, {
+      totalAssets: [1000n, 500n, 500n, 0n, 0n, 0n],
+      reserveX: 1000n,
+      reserveY: 1000n,
+    })
+
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'AmmalgamPair',
+              event: 'InterestAccrued',
+              srcAddress: POOL,
+              logIndex: 0,
+              block: { number: 40, timestamp: 86399 },
+              transaction: { hash: '0xday1', from: FROM },
+              params: {
+                reserveXAssets: 1000n,
+                reserveYAssets: 1000n,
+                depositXAssets: 500n,
+                depositYAssets: 500n,
+                borrowLAssets: 11n,
+                borrowXAssets: 0n,
+                borrowYAssets: 0n,
+              },
+            },
+            {
+              contract: 'AmmalgamPair',
+              event: 'InterestAccrued',
+              srcAddress: POOL,
+              logIndex: 0,
+              block: { number: 41, timestamp: 86400 },
+              transaction: { hash: '0xday2', from: FROM },
+              params: {
+                reserveXAssets: 1000n,
+                reserveYAssets: 1000n,
+                depositXAssets: 500n,
+                depositYAssets: 500n,
+                borrowLAssets: 30n,
+                borrowXAssets: 0n,
+                borrowYAssets: 0n,
+              },
+            },
+          ],
+        },
+      },
+    })
+
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    const day0 = await indexer.PoolDayData.getOrThrow(`${POOL_ID}-0`)
+    const day86400 = await indexer.PoolDayData.getOrThrow(`${POOL_ID}-86400`)
+    const firstAccrual = await indexer.InterestAccrued.getOrThrow(getEventId(CHAIN, '0xday1', 0))
+    const secondAccrual = await indexer.InterestAccrued.getOrThrow(getEventId(CHAIN, '0xday2', 0))
+
+    // Day 0 gross L 11 -> protocol 2; day 86400's additional gross L 19 -> protocol 2
+    // independently; pool sums to gross 30, protocol 4.
+    expect(firstAccrual.grossInterestL).toBe(11n)
+    expect(secondAccrual.grossInterestL).toBe(19n)
+    expect(day0.grossInterestTokenL).toBe(11n)
+    expect(day0.protocolInterestTokenL).toBe(2n)
+    expect(day86400.grossInterestTokenL).toBe(19n)
+    expect(day86400.protocolInterestTokenL).toBe(2n)
+    expect(pool.grossInterestTokenL).toBe(30n)
+    expect(pool.protocolInterestTokenL).toBe(4n)
+    expect(day0.grossInterestTokenL + day86400.grossInterestTokenL).toBe(pool.grossInterestTokenL)
+    expect(day0.protocolInterestTokenL + day86400.protocolInterestTokenL).toBe(
+      pool.protocolInterestTokenL,
+    )
   })
 
   it('InterestAccrued: a negative borrow delta clamps gross interest at 0', async () => {

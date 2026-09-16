@@ -610,7 +610,7 @@ describe('D2: protocol fee mint twins pair with InterestAccrued protocol interes
               logIndex: 2,
               block,
               transaction: { hash: '0xti9', from: ALICE },
-              params: { sender: POOL, to: FEE_TO, assets: 5n, shares: 5n },
+              params: { sender: POOL, to: FEE_TO, assets: 1n, shares: 1n },
             },
             {
               contract: 'ERC20DepositLiquidity',
@@ -619,6 +619,122 @@ describe('D2: protocol fee mint twins pair with InterestAccrued protocol interes
               logIndex: 3,
               block,
               transaction: { hash: '0xti9', from: ALICE },
+              params: { from: ZERO, to: FEE_TO, value: 1n },
+            },
+          ],
+        },
+      },
+    })
+
+    // gross L 5 -> protocolInterestL = ceil(5 * 10%) = 1, matching the fee mint below.
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    expect(pool.protocolInterestTokenL.toString()).toBe('1')
+    expect(pool.protocolInterestTokenLAsX.toString()).toBe('1')
+    expect(pool.protocolInterestTokenLAsY.toString()).toBe('1')
+    expect(pool.protocolFeesTokenL.toString()).toBe('1')
+    expect(pool.protocolFeesTokenLAsX.toString()).toBe('1')
+    expect(pool.protocolFeesTokenLAsY.toString()).toBe('1')
+
+    expect(pool.protocolInterestTokenL <= pool.protocolFeesTokenL).toBe(true)
+    expect(pool.protocolInterestTokenLAsX <= pool.protocolFeesTokenLAsX).toBe(true)
+    expect(pool.protocolInterestTokenLAsY <= pool.protocolFeesTokenLAsY).toBe(true)
+  })
+
+  it('reconciles X, Y, and L protocol mints in contract order', async () => {
+    const indexer = createTestIndexer()
+    seedAccrualPool(indexer)
+    indexer.Pool.set({
+      ...createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n),
+      reserveX: 50n,
+      reserveY: 200n,
+      totalAssets: [100n, 100n, 1000n, 0n, 100n, 200n],
+      totalShares: [100n, 100n, 1000n, 0n, 100n, 200n],
+    })
+    const block = { number: 21, timestamp: 201 }
+    const ZERO = '0x0000000000000000000000000000000000000000'
+
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'AmmalgamPair',
+              event: 'InterestAccrued',
+              srcAddress: POOL,
+              logIndex: 0,
+              block,
+              transaction: { hash: '0xordered', from: ALICE },
+              params: {
+                reserveXAssets: 50n,
+                reserveYAssets: 200n,
+                depositXAssets: 100n,
+                depositYAssets: 1000n,
+                borrowLAssets: 50n,
+                borrowXAssets: 150n,
+                borrowYAssets: 220n,
+              },
+            },
+            {
+              contract: 'AmmalgamPair',
+              event: 'Sync',
+              srcAddress: POOL,
+              logIndex: 1,
+              block,
+              transaction: { hash: '0xordered', from: ALICE },
+              params: { reserveXAssets: 50n, reserveYAssets: 200n },
+            },
+            {
+              contract: 'ERC4626Deposit',
+              event: 'Deposit',
+              srcAddress: LEND_X,
+              logIndex: 2,
+              block,
+              transaction: { hash: '0xordered', from: ALICE },
+              params: { sender: POOL, owner: FEE_TO, assets: 5n, shares: 5n },
+            },
+            {
+              contract: 'ERC4626Deposit',
+              event: 'Transfer',
+              srcAddress: LEND_X,
+              logIndex: 3,
+              block,
+              transaction: { hash: '0xordered', from: ALICE },
+              params: { from: ZERO, to: FEE_TO, value: 5n },
+            },
+            {
+              contract: 'ERC4626Deposit',
+              event: 'Deposit',
+              srcAddress: LEND_Y,
+              logIndex: 4,
+              block,
+              transaction: { hash: '0xordered', from: ALICE },
+              params: { sender: POOL, owner: FEE_TO, assets: 2n, shares: 2n },
+            },
+            {
+              contract: 'ERC4626Deposit',
+              event: 'Transfer',
+              srcAddress: LEND_Y,
+              logIndex: 5,
+              block,
+              transaction: { hash: '0xordered', from: ALICE },
+              params: { from: ZERO, to: FEE_TO, value: 2n },
+            },
+            {
+              contract: 'ERC20DepositLiquidity',
+              event: 'Mint',
+              srcAddress: LEND_L,
+              logIndex: 6,
+              block,
+              transaction: { hash: '0xordered', from: ALICE },
+              params: { sender: POOL, to: FEE_TO, assets: 5n, shares: 5n },
+            },
+            {
+              contract: 'ERC20DepositLiquidity',
+              event: 'Transfer',
+              srcAddress: LEND_L,
+              logIndex: 7,
+              block,
+              transaction: { hash: '0xordered', from: ALICE },
               params: { from: ZERO, to: FEE_TO, value: 5n },
             },
           ],
@@ -626,18 +742,32 @@ describe('D2: protocol fee mint twins pair with InterestAccrued protocol interes
       },
     })
 
-    // borrowL 0 -> 5 leaves active liquidity at 1000 both before and after (L has no reserve
-    // share, D3), so the protocol-interest and protocol-fee mints of that same 5 L twin equally.
     const pool = await indexer.Pool.getOrThrow(POOL_ID)
-    expect(pool.protocolInterestTokenL.toString()).toBe('5')
-    expect(pool.protocolInterestTokenLAsX.toString()).toBe('5')
-    expect(pool.protocolInterestTokenLAsY.toString()).toBe('5')
-    expect(pool.protocolFeesTokenL.toString()).toBe('5')
-    expect(pool.protocolFeesTokenLAsX.toString()).toBe('5')
-    expect(pool.protocolFeesTokenLAsY.toString()).toBe('5')
+    const dayData = await indexer.PoolDayData.getOrThrow(`${POOL_ID}-0`)
 
-    expect(pool.protocolInterestTokenL <= pool.protocolFeesTokenL).toBe(true)
-    expect(pool.protocolInterestTokenLAsX <= pool.protocolFeesTokenLAsX).toBe(true)
-    expect(pool.protocolInterestTokenLAsY <= pool.protocolFeesTokenLAsY).toBe(true)
+    // Reconciles in contract emission order (X, then Y, then L); each token's protocol interest
+    // rounds independently before the L twins convert.
+    expect(pool.grossInterestTokenX).toBe(50n)
+    expect(pool.grossInterestTokenY).toBe(20n)
+    expect(pool.grossInterestTokenL).toBe(50n)
+    expect(pool.protocolInterestTokenX).toBe(5n)
+    expect(pool.protocolInterestTokenY).toBe(2n)
+    expect(pool.protocolInterestTokenL).toBe(5n)
+    expect(pool.protocolInterestTokenLAsX).toBe(2n)
+    expect(pool.protocolInterestTokenLAsY).toBe(10n)
+    expect(pool.lpInterestTokenL).toBe(0n)
+    expect(pool.lpInterestTokenLAsX).toBe(0n)
+    expect(pool.lpInterestTokenLAsY).toBe(0n)
+    expect(pool.protocolFeesTokenX).toBe(5n)
+    expect(pool.protocolFeesTokenY).toBe(2n)
+    expect(pool.protocolFeesTokenL).toBe(5n)
+    expect(pool.protocolFeesTokenLAsX).toBe(2n)
+    expect(pool.protocolFeesTokenLAsY).toBe(10n)
+    expect(pool.totalAssets).toEqual([150n, 105n, 1002n, 50n, 150n, 220n])
+    expect(pool.totalShares).toEqual([105n, 105n, 1002n, 0n, 100n, 200n])
+    expect(dayData.protocolInterestTokenL).toBe(5n)
+    expect(dayData.protocolInterestTokenLAsX).toBe(2n)
+    expect(dayData.protocolInterestTokenLAsY).toBe(10n)
+    expect(dayData.protocolFeesTokenL).toBe(5n)
   })
 })

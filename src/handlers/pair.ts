@@ -223,7 +223,7 @@ indexer.onEvent(
 
     const protocolInterestX = mulDivCeil(grossX, LENDING_FEE_RATE, 100n)
     const protocolInterestY = mulDivCeil(grossY, LENDING_FEE_RATE, 100n)
-    const protocolInterestL = grossL
+    const protocolInterestL = mulDivCeil(grossL, LENDING_FEE_RATE, 100n)
 
     const depositL = calculateDepositLiquidityAssets(
       event.params.reserveXAssets,
