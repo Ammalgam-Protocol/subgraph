@@ -94,10 +94,22 @@ holdersRevenue    = 0
 already inside `grossInterestTokenX/Y`, and adding it would double count. `date` is a UTC day
 start matching `getTimestampAtStartOfDayUTC` (`date % 86400 === 0`).
 
-Expected divergences from the merged DefiLlama adapter, for the same day and pool: swap fees
-agree in concept (what the trader paid) and additionally cover two-sided swaps the adapter never
-counted; protocol X/Y revenue agrees to the wei; our interest is gross where theirs is the LP
-slice only.
+The fields intentionally do not reproduce every category or valuation choice in the merged
+DefiLlama adapter:
+
+| Field | Adapter category | Matches or differs | Reason |
+| --- | --- | --- | --- |
+| `grossInterestTokenX/Y`, `grossInterestTokenLAsX/Y` | LP interest | Differs | The indexer records gross borrower interest while the adapter records only the LP portion. |
+| `penaltiesTokenLAsX/Y` | None | Differs | The adapter does not separately add penalty debt mints. |
+| `lpInterestTokenLAsX/Y` | Native LP interest | Differs | L twins value active-liquidity growth rather than actual X and Y reserve increments. |
+| `*TokenLAsX/Y` | L-based revenue valuation | Differs | The indexer uses event state while the adapter can use later state from the same block. |
+| `protocolFeesToken*` | Protocol revenue | Matches in total; differs by source | Actual pair-originated mints are combined rather than split into initial lending and over-repayment fees. |
+| `volumeTokenX/Y` | Volume | Differs | The indexer adds inputs and outputs while the adapter uses inputs only. |
+| `swapFeesTokenX/Y` for ordinary one-input swaps | Swap fees | Matches | The proof-checked ceiling equals the first passing input for a non-depleted opposite-output swap. |
+| `swapFeesTokenX/Y` for depleted swaps | Swap fees | Differs | The indexer uses the adjusted invariant rather than raw constant-product inference. |
+| `swapFeesTokenX/Y` for same-token swaps | Swap fees | Differs | The indexer records input minus output while the adapter records zero when the opposite output is zero. |
+| `swapFeesTokenX/Y` for two-sided swaps | Swap fees | Differs by leg | The indexer allocates both inputs while the adapter counts a leg only when its opposite output is positive. |
+| `feeL` / `swapFeesTokenL` vs native swap fees | Swap fees | Differs | Active-liquidity growth and native input retained are separate measurements and must not be converted or summed. |
 
 ### Swap alert (cf-api)
 

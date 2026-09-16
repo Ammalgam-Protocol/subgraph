@@ -89,12 +89,6 @@ export function reserveAdjustment(reserve: bigint, missing: bigint): bigint {
   return reserve * 19n < missing * 20n ? (reserve - missing) * 20n : reserve
 }
 
-// K-check boundary, without the depleted-branch BUFFER_NUMERATOR scale.
-// The basis for valuing a swap fee back into the token it was paid in.
-export function calculateSwapFeeReserve(reserve: bigint, missing: bigint): bigint {
-  return reserve * 19n < missing * 20n ? reserve - missing : reserve
-}
-
 export function depletionAdjustedActiveLiquidity(
   reserveX: bigint,
   reserveY: bigint,
@@ -144,48 +138,77 @@ export function calculateDepositLiquidityAssets(
   return depletionAdjustedActiveLiquidity(reserveX, reserveY, missingX, missingY) + borrowL
 }
 
-// Splits a two-sided swap's growth by each input weighted as the K check weighs it.
 export function splitSwapFee(
-  feeL: bigint,
   amountXIn: bigint,
   amountYIn: bigint,
-  postX: bigint,
-  postY: bigint,
+  amountXOut: bigint,
+  amountYOut: bigint,
+  reserveXBefore: bigint,
+  reserveYBefore: bigint,
   missingX: bigint,
   missingY: bigint,
-  activeLiquidity: bigint,
-): { feeAmountX: bigint; feeAmountY: bigint } {
-  if (feeL === 0n || activeLiquidity === 0n) {
-    return { feeAmountX: 0n, feeAmountY: 0n }
+): { feeAmountX: bigint; feeAmountY: bigint } | undefined {
+  if (amountXIn === 0n && amountYIn === 0n) return undefined
+
+  const isTwoSided = amountXIn > 0n && amountYIn > 0n
+  const isAmountXInLarger = amountXIn >= amountYIn
+  const largerAmountIn = isAmountXInLarger ? amountXIn : amountYIn
+  const otherAmountIn = isAmountXInLarger ? amountYIn : amountXIn
+  const isSingleXInput = amountXIn > 0n && amountYIn === 0n
+  const inputReserve = isSingleXInput ? reserveXBefore : reserveYBefore
+  const oppositeReserve = isSingleXInput ? reserveYBefore : reserveXBefore
+  const sameTokenOutput = isSingleXInput ? amountXOut : amountYOut
+  const oppositeOutput = isSingleXInput ? amountYOut : amountXOut
+  const oppositeReserveAfter = oppositeReserve - oppositeOutput
+  const directMinimum =
+    !isTwoSided && oppositeReserveAfter > 0n
+      ? sameTokenOutput + mulDivCeil(inputReserve, oppositeOutput, oppositeReserveAfter)
+      : undefined
+
+  const invariantBefore =
+    reserveAdjustment(reserveXBefore, missingX) * reserveAdjustment(reserveYBefore, missingY)
+  const passesFeeFreeInvariant = (candidate: bigint): boolean => {
+    const proportionalAmountIn = mulDivCeil(otherAmountIn, candidate, largerAmountIn)
+    const candidateAmountXIn = isAmountXInLarger ? candidate : proportionalAmountIn
+    const candidateAmountYIn = isAmountXInLarger ? proportionalAmountIn : candidate
+    const reserveXAfter = reserveXBefore + candidateAmountXIn - amountXOut
+    const reserveYAfter = reserveYBefore + candidateAmountYIn - amountYOut
+    return (
+      reserveAdjustment(reserveXAfter, missingX) * reserveAdjustment(reserveYAfter, missingY) >=
+      invariantBefore
+    )
   }
-  if (amountYIn === 0n) {
-    return {
-      feeAmountX: (2n * feeL * calculateSwapFeeReserve(postX, missingX)) / activeLiquidity,
-      feeAmountY: 0n,
+
+  let minimumInput: bigint
+  if (
+    directMinimum !== undefined &&
+    directMinimum <= largerAmountIn &&
+    passesFeeFreeInvariant(directMinimum) &&
+    (directMinimum === 0n || !passesFeeFreeInvariant(directMinimum - 1n))
+  ) {
+    minimumInput = directMinimum
+  } else {
+    if (!passesFeeFreeInvariant(largerAmountIn)) return undefined
+
+    let lower = 0n
+    let upper = largerAmountIn
+    while (lower < upper) {
+      const midpoint = (lower + upper) / 2n
+      if (passesFeeFreeInvariant(midpoint)) {
+        upper = midpoint
+      } else {
+        lower = midpoint + 1n
+      }
     }
-  }
-  if (amountXIn === 0n) {
-    return {
-      feeAmountX: 0n,
-      feeAmountY: (2n * feeL * calculateSwapFeeReserve(postY, missingY)) / activeLiquidity,
-    }
+    minimumInput = lower
   }
 
-  const depletedX = postX * 19n < missingX * 20n
-  const depletedY = postY * 19n < missingY * 20n
-  const weightX = depletedX ? amountXIn * 20n : amountXIn
-  const weightY = depletedY ? amountYIn * 20n : amountYIn
-
-  // Cross-multiplied at the post-swap price (postY / postX) so the two legs compare on one basis.
-  const crossX = weightX * postY
-  const crossY = weightY * postX
-  const denominator = crossX + crossY
-  const feeLX = denominator === 0n ? 0n : (feeL * crossX) / denominator
-  const feeLY = feeL - feeLX
-
+  const proportionalMinimumInput = mulDivCeil(otherAmountIn, minimumInput, largerAmountIn)
+  const minimumAmountXIn = isAmountXInLarger ? minimumInput : proportionalMinimumInput
+  const minimumAmountYIn = isAmountXInLarger ? proportionalMinimumInput : minimumInput
   return {
-    feeAmountX: (2n * feeLX * calculateSwapFeeReserve(postX, missingX)) / activeLiquidity,
-    feeAmountY: (2n * feeLY * calculateSwapFeeReserve(postY, missingY)) / activeLiquidity,
+    feeAmountX: amountXIn - minimumAmountXIn,
+    feeAmountY: amountYIn - minimumAmountYIn,
   }
 }
 

@@ -2,7 +2,6 @@ import { BigDecimal } from 'envio'
 import { describe, expect, it } from 'vitest'
 import {
   calculateDepositLiquidityAssets,
-  calculateSwapFeeReserve,
   convertLToXAndY,
   convertTokenToDecimal,
   convertXToL,
@@ -176,17 +175,6 @@ describe('missingAssets', () => {
   })
 })
 
-describe('calculateSwapFeeReserve', () => {
-  it('at the 95% boundary exactly (reserve*19 == missing*20) returns the full reserve', () =>
-    expect(calculateSwapFeeReserve(100n, 95n)).toBe(100n))
-  it('just past the 95% boundary returns reserve - missing', () =>
-    expect(calculateSwapFeeReserve(100n, 96n)).toBe(4n))
-  it('mirrors the boundary on the other leg', () => {
-    expect(calculateSwapFeeReserve(2000n, 1900n)).toBe(2000n)
-    expect(calculateSwapFeeReserve(2000n, 1901n)).toBe(99n)
-  })
-})
-
 describe('swapFeeGrowth', () => {
   it('single-sided: only X moves', () =>
     // isqrt(1000*1000)=1000, isqrt(1010*1000)=1004
@@ -198,45 +186,6 @@ describe('swapFeeGrowth', () => {
   it('two-sided: both X and Y move', () =>
     // isqrt(1000*1000)=1000, isqrt(1010*1005)=1007
     expect(swapFeeGrowth(1000n, 1000n, 1010n, 1005n, 0n, 0n)).toBe(7n))
-
-  it('exact-paid: growth values within 1e-5 of the constant-product required fee', () => {
-    // 1,000,000e18 reserves, 10,000e18 X in, 20e18 required fee kept in reserves; y-out solved
-    // from the fee-adjusted input so K holds with equality.
-    const reserve = 10n ** 24n
-    const amountIn = 10_000n * 10n ** 18n
-    const requiredFee = 20n * 10n ** 18n
-    const amountInAfterFee = amountIn - requiredFee
-    const out = (reserve * amountInAfterFee) / (reserve + amountInAfterFee)
-    const postX = reserve + amountIn
-    const postY = reserve - out
-
-    const growth = swapFeeGrowth(reserve, reserve, postX, postY, 0n, 0n)
-    const activeLiquidity = depletionAdjustedActiveLiquidity(postX, postY, 0n, 0n)
-    const valuedInX = (2n * growth * calculateSwapFeeReserve(postX, 0n)) / activeLiquidity
-
-    const ratio = Number(valuedInX) / Number(requiredFee)
-    expect(Math.abs(ratio - 1)).toBeLessThan(1e-5)
-  })
-
-  it('with router slack: overpaying for the same output values the whole overpayment', () => {
-    // Router quotes 10,000e18 X for a fixed out at the pre-swap price, then pays 0.5% more (stale
-    // slippage tolerance) for that same out; the extra 50e18 lands entirely in growth on top of the quoted fee.
-    const reserve = 10n ** 24n
-    const amountIn = 10_000n * 10n ** 18n
-    const requiredFee = 20n * 10n ** 18n
-    const amountInAfterFee = amountIn - requiredFee
-    const out = (reserve * amountInAfterFee) / (reserve + amountInAfterFee)
-    const slackAmountIn = (amountIn * 1005n) / 1000n
-    const postX = reserve + slackAmountIn
-    const postY = reserve - out
-
-    const growth = swapFeeGrowth(reserve, reserve, postX, postY, 0n, 0n)
-    const activeLiquidity = depletionAdjustedActiveLiquidity(postX, postY, 0n, 0n)
-    const valuedInX = (2n * growth * calculateSwapFeeReserve(postX, 0n)) / activeLiquidity
-
-    expect(valuedInX).toBe(70001212853274820426n)
-    expect(valuedInX).toBeGreaterThan(3n * requiredFee)
-  })
 
   it('depleted pre-state where the raw (unadjusted) growth would be negative', () => {
     // Depletion fixture: X 96% depleted, 1000 X in. The unadjusted isqrt(postX*postY) - isqrt(preX*preY)
@@ -252,27 +201,6 @@ describe('swapFeeGrowth', () => {
 
     const growth = swapFeeGrowth(reserve, reserve, postX, postY, missingX, 0n)
     expect(growth).toBe(32724741893124811477n)
-  })
-})
-
-describe('swapFeeGrowth valuation in a depleted pre-state', () => {
-  it('reproduces 3.00005 X against a 3 X fee, not the 73.245 X raw-reserve valuation', () => {
-    const reserve = 10n ** 24n
-    const missingX = (96n * 10n ** 24n) / 100n
-    const amountIn = 10n ** 21n
-    const postX = reserve + amountIn
-    const postY = 975681147401029343610509n
-
-    const growth = swapFeeGrowth(reserve, reserve, postX, postY, missingX, 0n)
-    const activeLiquidity = depletionAdjustedActiveLiquidity(postX, postY, missingX, 0n)
-
-    const correctValuation =
-      (2n * growth * calculateSwapFeeReserve(postX, missingX)) / activeLiquidity
-    expect(correctValuation).toBe(3000054880056605801n)
-
-    const rawReserveValuation = (2n * growth * postX) / activeLiquidity
-    expect(rawReserveValuation).toBe(73245242315528351399n)
-    expect(rawReserveValuation).not.toBe(correctValuation)
   })
 })
 
@@ -297,45 +225,58 @@ describe('calculateDepositLiquidityAssets', () => {
 })
 
 describe('splitSwapFee', () => {
-  it('returns 0/0 when there is no growth', () => {
-    expect(splitSwapFee(0n, 10n, 10n, 1000n, 1000n, 0n, 0n, 1000n)).toEqual({
+  it('rejects swaps without an input token', () => {
+    expect(splitSwapFee(0n, 0n, 0n, 0n, 1000n, 1000n, 0n, 0n)).toBeUndefined()
+  })
+
+  it('uses the proof-checked direct minimum for one-sided inputs', () => {
+    expect(splitSwapFee(10n, 0n, 0n, 6n, 1000n, 1000n, 0n, 0n)).toEqual({
+      feeAmountX: 3n,
+      feeAmountY: 0n,
+    })
+    expect(splitSwapFee(0n, 10n, 6n, 0n, 1000n, 1000n, 0n, 0n)).toEqual({
       feeAmountX: 0n,
+      feeAmountY: 3n,
+    })
+  })
+
+  it('accepts zero as the minimum for a zero-output swap', () => {
+    expect(splitSwapFee(10n, 0n, 0n, 0n, 1000n, 1000n, 0n, 0n)).toEqual({
+      feeAmountX: 10n,
       feeAmountY: 0n,
     })
   })
 
-  it('one-sided: all growth values into the input token', () => {
-    expect(splitSwapFee(15n, 10n, 0n, 1000n, 1000n, 0n, 0n, 500n)).toEqual({
-      feeAmountX: 60n,
+  it('bisects the depleted one-sided input when the direct minimum is not minimal', () => {
+    const scale = 10n ** 18n
+
+    expect(
+      splitSwapFee(10n * scale, 0n, 0n, scale, 1000n * scale, 1000n * scale, 960n * scale, 0n),
+    ).toEqual({
+      feeAmountX: 9959959959959959959n,
       feeAmountY: 0n,
     })
-    expect(splitSwapFee(15n, 0n, 10n, 1000n, 1000n, 0n, 0n, 500n)).toEqual({
+  })
+
+  it('allocates two-sided fees along equal and asymmetric input rays', () => {
+    const scale = 10n ** 18n
+
+    expect(
+      splitSwapFee(15n * scale, 15n * scale, 0n, 20n * scale, 1000n * scale, 1000n * scale, 0n, 0n),
+    ).toEqual({
+      feeAmountX: 4950001249937503905n,
+      feeAmountY: 4950001249937503905n,
+    })
+    expect(
+      splitSwapFee(1n, scale, 0n, scale / 2n, 1000n * 10n ** 6n, 1000n * scale, 0n, 0n),
+    ).toEqual({
       feeAmountX: 0n,
-      feeAmountY: 60n,
+      feeAmountY: 500000999999999000n,
     })
   })
 
-  it('balanced inputs at an even price split the growth evenly', () => {
-    expect(splitSwapFee(20n, 10n, 10n, 1000n, 1000n, 0n, 0n, 1000n)).toEqual({
-      feeAmountX: 20n,
-      feeAmountY: 20n,
-    })
-  })
-
-  it('one depleted leg weighs that leg 20x, an ~95/5 split of the growth', () => {
-    // X depleted (1000*19=19000 < 960*20=19200): weightX=10*20=200, weightY=10.
-    // Cross at the post-swap price (postY=postX=1000): 200:10 = 20:1 -> feeL 200:10 of 210.
-    const result = splitSwapFee(210n, 10n, 10n, 1000n, 1000n, 960n, 0n, 100n)
-    expect(result).toEqual({ feeAmountX: 160n, feeAmountY: 200n })
-  })
-
-  it('the other depleted leg mirrors the weighting (Y depleted this time)', () => {
-    const result = splitSwapFee(210n, 10n, 10n, 1000n, 1000n, 0n, 960n, 100n)
-    expect(result).toEqual({ feeAmountX: 200n, feeAmountY: 160n })
-  })
-
-  it('zero post-swap reserves on both legs (degenerate) fall back to a zero split', () => {
-    const result = splitSwapFee(100n, 5n, 5n, 0n, 0n, 0n, 0n, 50n)
-    expect(result).toEqual({ feeAmountX: 0n, feeAmountY: 0n })
+  it('rejects inputs that cannot restore the fee-free invariant', () => {
+    expect(splitSwapFee(1n, 0n, 0n, 2n, 1000n, 1000n, 0n, 0n)).toBeUndefined()
+    expect(splitSwapFee(1000n, 0n, 0n, 1000n, 1000n, 1000n, 0n, 0n)).toBeUndefined()
   })
 })

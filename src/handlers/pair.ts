@@ -91,23 +91,21 @@ indexer.onEvent({ contract: 'AmmalgamPair', event: 'Swap' }, async ({ event, con
     missingX,
     missingY,
   )
-  const activeLiquidity = depletionAdjustedActiveLiquidity(
-    reserveXAfter,
-    reserveYAfter,
-    missingX,
-    missingY,
-  )
-  const { feeAmountX, feeAmountY } = splitSwapFee(
-    feeL,
+  const calculatedFees = splitSwapFee(
     event.params.amountXIn,
     event.params.amountYIn,
-    reserveXAfter,
-    reserveYAfter,
+    event.params.amountXOut,
+    event.params.amountYOut,
+    reserveXBefore,
+    reserveYBefore,
     missingX,
     missingY,
-    activeLiquidity,
   )
-  const fees = { feeL, feeAmountX, feeAmountY }
+  if (!calculatedFees) {
+    context.log.warn(`Swap fee-free invariant failed for full input on pool ${poolId}`)
+  }
+  const nativeFees = calculatedFees ?? { feeAmountX: 0n, feeAmountY: 0n }
+  const fees = { feeL, ...nativeFees }
 
   const rawAmountXTotal = event.params.amountXOut + event.params.amountXIn
   const rawAmountYTotal = event.params.amountYOut + event.params.amountYIn

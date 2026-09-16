@@ -122,8 +122,7 @@ describe('pair handlers', () => {
     expect(swap.sender_id).toBe(SENDER_ID)
     expect(swap.to_id).toBe(TO_ID)
     expect(swap.from_id).toBe(FROM_ID)
-    // pre=(1000,1000) -> 1000; post=(1100,950) -> isqrt(1045000)=1022 -> feeL=22
-    // feeAmountX = 2*22*calculateSwapFeeReserve(1100,0)/1022 = 48400/1022 = 47
+    // Fee-free minimum: ceil(1000*50/950)=53, so native fee = 100-53=47; feeL stays isqrt(1100*950)-1000=22.
     expect(swap.feeL).toBe(22n)
     expect(swap.feeAmountX).toBe(47n)
     expect(swap.feeAmountY).toBe(0n)

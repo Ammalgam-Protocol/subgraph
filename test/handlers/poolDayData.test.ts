@@ -1,7 +1,7 @@
 import { createTestIndexer } from 'envio'
 import { describe, expect, it } from 'vitest'
 
-import { scopedId } from '../../src/utils/id'
+import { getEventId, scopedId } from '../../src/utils/id'
 import { createDefaultPool } from '../../src/utils/pool'
 
 const CHAIN = 11155111
@@ -120,7 +120,7 @@ describe('PoolDayData: one write path for yield', () => {
     expect(dayData.volumeTokenX).toBe(pool.volumeTokenX)
   })
 
-  it('lands two accruals across a UTC midnight in two day rows summing to Pool', async () => {
+  it('reconciles fee-bearing swaps across UTC days with events and Pool', async () => {
     const indexer = createTestIndexer()
     seed(indexer)
     await indexer.process({
@@ -133,47 +133,73 @@ describe('PoolDayData: one write path for yield', () => {
               srcAddress: POOL,
               logIndex: 0,
               block: { number: 10, timestamp: 86399 },
-              transaction: { hash: '0xswapA', from: FROM },
+              transaction: { hash: '0xswapa', from: FROM },
               params: {
                 sender: SENDER,
                 to: TO,
-                amountXIn: 100n,
+                amountXIn: 10n,
                 amountYIn: 0n,
                 amountXOut: 0n,
-                amountYOut: 50n,
+                amountYOut: 6n,
               },
+            },
+            {
+              contract: 'AmmalgamPair',
+              event: 'Sync',
+              srcAddress: POOL,
+              logIndex: 1,
+              block: { number: 10, timestamp: 86399 },
+              transaction: { hash: '0xswapa', from: FROM },
+              params: { reserveXAssets: 1010n, reserveYAssets: 994n },
             },
             {
               contract: 'AmmalgamPair',
               event: 'Swap',
               srcAddress: POOL,
-              logIndex: 1,
+              logIndex: 0,
               block: { number: 11, timestamp: 86400 + 10 },
-              transaction: { hash: '0xswapB', from: FROM },
+              transaction: { hash: '0xswapb', from: FROM },
               params: {
                 sender: SENDER,
                 to: TO,
-                amountXIn: 300n,
+                amountXIn: 10n,
                 amountYIn: 0n,
                 amountXOut: 0n,
-                amountYOut: 50n,
+                amountYOut: 5n,
               },
+            },
+            {
+              contract: 'AmmalgamPair',
+              event: 'Sync',
+              srcAddress: POOL,
+              logIndex: 1,
+              block: { number: 11, timestamp: 86400 + 10 },
+              transaction: { hash: '0xswapb', from: FROM },
+              params: { reserveXAssets: 1020n, reserveYAssets: 989n },
             },
           ],
         },
       },
     })
 
+    const swapA = await indexer.Swap.getOrThrow(getEventId(CHAIN, '0xswapa', 0))
+    const swapB = await indexer.Swap.getOrThrow(getEventId(CHAIN, '0xswapb', 0))
     const pool = await indexer.Pool.getOrThrow(POOL_ID)
     const dayA = await indexer.PoolDayData.getOrThrow(`${POOL_ID}-0`)
     const dayB = await indexer.PoolDayData.getOrThrow(`${POOL_ID}-86400`)
 
-    expect(dayA.volumeTokenX.toString()).toBe('100')
-    expect(dayB.volumeTokenX.toString()).toBe('300')
-    expect(dayA.swapCount).toBe(1)
-    expect(dayB.swapCount).toBe(1)
-
-    expect(dayA.volumeTokenX + dayB.volumeTokenX).toBe(pool.volumeTokenX)
+    expect(swapA.feeAmountX).toBe(3n)
+    expect(swapA.feeL).toBe(1n)
+    expect(swapB.feeAmountX).toBe(4n)
+    expect(swapB.feeL).toBe(3n)
+    expect(dayA.swapFeesTokenX).toBe(swapA.feeAmountX)
+    expect(dayA.swapFeesTokenL).toBe(swapA.feeL)
+    expect(dayB.swapFeesTokenX).toBe(swapB.feeAmountX)
+    expect(dayB.swapFeesTokenL).toBe(swapB.feeL)
+    expect(dayA.swapFeesTokenX + dayB.swapFeesTokenX).toBe(pool.swapFeesTokenX)
+    expect(dayA.swapFeesTokenL + dayB.swapFeesTokenL).toBe(pool.swapFeesTokenL)
+    expect(pool.swapFeesTokenX).toBe(7n)
+    expect(pool.swapFeesTokenL).toBe(4n)
     expect(dayA.swapCount + dayB.swapCount).toBe(pool.swapCount)
     expect(dayA.txCount + dayB.txCount).toBe(pool.txCount)
   })
