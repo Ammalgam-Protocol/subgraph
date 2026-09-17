@@ -1,22 +1,25 @@
 import { createTestIndexer } from 'envio'
 import { describe, expect, it } from 'vitest'
 
-import { getEventId, scopedId } from '../../src/utils/id'
+import { getEventId, getPositionId, scopedId } from '../../src/utils/id'
 import { createDefaultPool } from '../../src/utils/pool'
 
 const CHAIN = 11155111
 const POOL = '0xaa01000000000000000000000000000000000001'
 const TX = '0xaaa0000000000000000000000000000000000001'
 const TY = '0xbbb0000000000000000000000000000000000002'
+const LEND_BX = '0x00000000000000000000000000000000000000d4'
 const FROM = '0xf00d000000000000000000000000000000000001'
 const SENDER = '0x5e4d000000000000000000000000000000000001'
 const TO = '0x7000000000000000000000000000000000000001'
 const BORROWER = '0xb00b000000000000000000000000000000000001'
 const LIQUIDATOR = '0x11c0000000000000000000000000000000000001'
+const ZERO = '0x0000000000000000000000000000000000000000'
 
 const POOL_ID = scopedId(CHAIN, POOL)
 const TX_ID = scopedId(CHAIN, TX)
 const TY_ID = scopedId(CHAIN, TY)
+const LEND_BX_ID = scopedId(CHAIN, LEND_BX)
 const FROM_ID = scopedId(CHAIN, FROM)
 const SENDER_ID = scopedId(CHAIN, SENDER)
 const TO_ID = scopedId(CHAIN, TO)
@@ -49,7 +52,12 @@ function seed(indexer: ReturnType<typeof createTestIndexer>) {
 
 function seedPool(
   indexer: ReturnType<typeof createTestIndexer>,
-  overrides: { totalAssets?: bigint[]; reserveX?: bigint; reserveY?: bigint },
+  overrides: {
+    totalAssets?: bigint[]
+    totalShares?: bigint[]
+    reserveX?: bigint
+    reserveY?: bigint
+  },
 ) {
   seed(indexer)
   indexer.Pool.set({
@@ -730,6 +738,91 @@ describe('pair handlers', () => {
     // burnReserves = mulDiv(190, 1000, 900+1000) = 100 -> DEPOSIT_X -= (190-100) = 810
     expect(pool.totalAssets[1]).toBe(810n)
     expect(pool.reserveX).toBe(1000n)
+  })
+
+  it('BurnBadDebt BORROW_X re-derives deposit L after the deposit-side haircut', async () => {
+    const indexer = createTestIndexer()
+    // reserves 100/100, depositY 1000, borrowX 1096 -> depositL = 89
+    seedPool(indexer, {
+      reserveX: 100n,
+      reserveY: 100n,
+      totalAssets: [89n, 1000n, 1000n, 0n, 1096n, 0n],
+      totalShares: [0n, 1000n, 1000n, 0n, 1096n, 0n],
+    })
+    indexer.LendingToken.set({
+      id: LEND_BX_ID,
+      symbol: 'dTKX',
+      name: 'Debt TKX',
+      decimals: 18,
+      pool_id: POOL_ID,
+      tokenType: 4,
+      pendingAssets: undefined,
+      pendingShares: undefined,
+    })
+    indexer.Position.set({
+      id: getPositionId(BORROWER_ID, POOL_ID),
+      user_id: BORROWER_ID,
+      pool_id: POOL_ID,
+      hash: '0x',
+      blockNumber: 1n,
+      timestamp: 1n,
+      assets: [0n, 0n, 0n, 0n, 1096n, 0n],
+      shares: [0n, 0n, 0n, 0n, 1096n, 0n],
+      principal: 0n,
+      depositCount: 0,
+      withdrawCount: 0,
+      borrowCount: 0,
+      repayCount: 0,
+      transferredCount: 0,
+      receivedCount: 0,
+    })
+
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'ERC4626Debt',
+              event: 'Repay',
+              srcAddress: LEND_BX,
+              logIndex: 0,
+              block: { number: 22, timestamp: 220 },
+              transaction: { hash: '0xbbd-small', from: BORROWER },
+              params: { sender: POOL, onBehalfOf: BORROWER, assets: 1n, shares: 1n },
+            },
+            {
+              contract: 'ERC4626Debt',
+              event: 'Transfer',
+              srcAddress: LEND_BX,
+              logIndex: 1,
+              block: { number: 22, timestamp: 220 },
+              transaction: { hash: '0xbbd-small', from: BORROWER },
+              params: { from: BORROWER, to: ZERO, value: 1n },
+            },
+            {
+              contract: 'AmmalgamPair',
+              event: 'BurnBadDebt',
+              srcAddress: POOL,
+              logIndex: 2,
+              block: { number: 22, timestamp: 220 },
+              transaction: { hash: '0xbbd-small', from: BORROWER },
+              params: {
+                borrower: BORROWER,
+                tokenType: 4n,
+                badDebtAssets: 1n,
+                badDebtShares: 1n,
+              },
+            },
+          ],
+        },
+      },
+    })
+
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    // Haircut takes depositX 1000 -> 999 and borrowX to 1095; re-derived depositL holds at 89.
+    expect(pool.totalAssets).toEqual([89n, 999n, 1000n, 0n, 1095n, 0n])
+    expect(pool.reserveX).toBe(100n)
+    expect(pool.reserveY).toBe(100n)
   })
 
   it('BurnBadDebt on BORROW_L touches neither BORROW_L nor DEPOSIT_L directly (D10)', async () => {

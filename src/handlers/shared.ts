@@ -236,19 +236,21 @@ function updateAssets(pool: Pool): bigint[] {
 }
 
 export async function handleLendingTokenTransfer(event: TransferEvent, context: EvmOnEventContext) {
-  if (event.params.value === 0n) return
+  const value = event.params.value
+  const isMint = event.params.from.toLowerCase() === ADDRESS_ZERO
+  const isBurn = event.params.to.toLowerCase() === ADDRESS_ZERO
+  if (value === 0n && !isMint && !isBurn) return
 
   const loaded = await loadLendingTokenAndPool(context, event)
   if (!loaded) return
   const { lendingToken, pool } = loaded
 
+  // A zero-value Transfer is real only when a Deposit or Repay stashed zero shares.
+  if (value === 0n && lendingToken.pendingShares !== value) return
+
   const tokenType = lendingToken.tokenType
-  const value = event.params.value
   const senderId = scopedId(event.chainId, event.params.from)
   const receiverId = scopedId(event.chainId, event.params.to)
-
-  const isMint = event.params.from.toLowerCase() === ADDRESS_ZERO
-  const isBurn = event.params.to.toLowerCase() === ADDRESS_ZERO
 
   if (isMint) {
     const assets = getAssets(context, lendingToken, tokenType, value, pool)

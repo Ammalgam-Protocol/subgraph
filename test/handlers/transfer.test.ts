@@ -24,7 +24,12 @@ const BOB_ID = scopedId(CHAIN, BOB)
 
 function seed(
   indexer: ReturnType<typeof createTestIndexer>,
-  totals?: Partial<{ totalAssets: bigint[]; totalShares: bigint[] }>,
+  overrides?: Partial<{
+    totalAssets: bigint[]
+    totalShares: bigint[]
+    reserveX: bigint
+    reserveY: bigint
+  }>,
 ) {
   indexer.LendingToken.set({
     id: LEND_X_ID,
@@ -39,9 +44,10 @@ function seed(
   const pool = createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n)
   indexer.Pool.set({
     ...pool,
-    reserveX: 1000n,
-    totalAssets: totals?.totalAssets ?? [1000n, 0n, 0n, 0n, 0n, 0n],
-    totalShares: totals?.totalShares ?? [1000n, 0n, 0n, 0n, 0n, 0n],
+    reserveX: overrides?.reserveX ?? 1000n,
+    reserveY: overrides?.reserveY ?? pool.reserveY,
+    totalAssets: overrides?.totalAssets ?? [1000n, 0n, 0n, 0n, 0n, 0n],
+    totalShares: overrides?.totalShares ?? [1000n, 0n, 0n, 0n, 0n, 0n],
   })
 }
 
@@ -153,12 +159,35 @@ describe('lending-token Transfer accounting', () => {
     expect(pair.shares[1]).toBe(25n) // accounting still ran
   })
 
-  it('value == 0 is a no-op', async () => {
+  it('value == 0 is a no-op without matching pendingShares', async () => {
     const indexer = createTestIndexer()
     seed(indexer)
-    await indexer.process({ chains: { 11155111: { simulate: [transfer(ALICE, BOB, 0n)] } } })
+    // pendingShares 1 does not match the incoming 0, so both Transfers must fall through.
+    indexer.LendingToken.set({
+      id: LEND_X_ID,
+      symbol: 'aTKX',
+      name: 'Ammalgam TKX',
+      decimals: 18,
+      pool_id: POOL_ID,
+      tokenType: 1,
+      pendingAssets: 1n,
+      pendingShares: 1n,
+    })
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [transfer(ALICE, BOB, 0n, 0), transfer(ZERO, ALICE, 0n, 1)],
+        },
+      },
+    })
     expect(await indexer.Transfer.getAll()).toHaveLength(0)
     expect(await indexer.Position.getAll()).toHaveLength(0)
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    expect(pool.transferCount).toBe(0)
+    expect(pool.txCount).toBe(0)
+    const lendingToken = await indexer.LendingToken.getOrThrow(LEND_X_ID)
+    expect(lendingToken.pendingAssets).toBe(1n)
+    expect(lendingToken.pendingShares).toBe(1n)
   })
 
   it('withdraw hop then burn nets the pair to zero at identical rate', async () => {
@@ -221,6 +250,80 @@ describe('lending-token Transfer accounting', () => {
     const lendingToken = await indexer.LendingToken.getOrThrow(LEND_X_ID)
     expect(lendingToken.pendingAssets).toBeUndefined() // stash cleared after consumption
     expect(lendingToken.pendingShares).toBeUndefined()
+  })
+
+  it('zero-share Deposit and Repay Transfers consume pendingAssets', async () => {
+    // reserves 100/100, depositY 1000: depositL 89 before the 1-asset action, 100 after.
+    const depositIndexer = createTestIndexer()
+    seed(depositIndexer, {
+      reserveX: 100n,
+      reserveY: 100n,
+      totalAssets: [89n, 1001n, 1000n, 0n, 1097n, 0n],
+      totalShares: [0n, 1000n, 1000n, 0n, 1000n, 0n],
+    })
+    await depositIndexer.process({
+      chains: {
+        11155111: {
+          simulate: [depositAction(ALICE, ALICE, 1n, 0n, 0), transfer(ZERO, ALICE, 0n, 1)],
+        },
+      },
+    })
+    const depositPool = await depositIndexer.Pool.getOrThrow(POOL_ID)
+    expect(depositPool.totalAssets).toEqual([100n, 1002n, 1000n, 0n, 1097n, 0n])
+    expect(depositPool.totalShares).toEqual([0n, 1000n, 1000n, 0n, 1000n, 0n])
+    const depositToken = await depositIndexer.LendingToken.getOrThrow(LEND_X_ID)
+    expect(depositToken.pendingAssets).toBeUndefined()
+    expect(depositToken.pendingShares).toBeUndefined()
+
+    const repayIndexer = createTestIndexer()
+    seed(repayIndexer, {
+      reserveX: 100n,
+      reserveY: 100n,
+      totalAssets: [89n, 1001n, 1000n, 0n, 1097n, 0n],
+      totalShares: [0n, 1000n, 1000n, 0n, 1000n, 0n],
+    })
+    repayIndexer.LendingToken.set({
+      id: LEND_BX_ID,
+      symbol: 'dTKX',
+      name: 'Debt TKX',
+      decimals: 18,
+      pool_id: POOL_ID,
+      tokenType: 4,
+      pendingAssets: undefined,
+      pendingShares: undefined,
+    })
+    await repayIndexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'ERC4626Debt',
+              event: 'Repay',
+              srcAddress: LEND_BX,
+              logIndex: 0,
+              block: { number: 10, timestamp: 100 },
+              transaction: { hash: '0xrep', from: ALICE },
+              params: { sender: ALICE, onBehalfOf: ALICE, assets: 1n, shares: 0n },
+            },
+            {
+              contract: 'ERC4626Debt',
+              event: 'Transfer',
+              srcAddress: LEND_BX,
+              logIndex: 1,
+              block: { number: 10, timestamp: 100 },
+              transaction: { hash: '0xrep', from: ALICE },
+              params: { from: ALICE, to: ZERO, value: 0n },
+            },
+          ],
+        },
+      },
+    })
+    const repayPool = await repayIndexer.Pool.getOrThrow(POOL_ID)
+    expect(repayPool.totalAssets).toEqual([100n, 1001n, 1000n, 0n, 1096n, 0n])
+    expect(repayPool.totalShares).toEqual([0n, 1000n, 1000n, 0n, 1000n, 0n])
+    const repayToken = await repayIndexer.LendingToken.getOrThrow(LEND_BX_ID)
+    expect(repayToken.pendingAssets).toBeUndefined()
+    expect(repayToken.pendingShares).toBeUndefined()
   })
 
   it('a mint Transfer with no matching stash falls back to the floor reconstruction', async () => {

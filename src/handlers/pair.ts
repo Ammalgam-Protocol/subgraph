@@ -334,12 +334,22 @@ indexer.onEvent({ contract: 'AmmalgamPair', event: 'BurnBadDebt' }, async ({ eve
     const depositIndex = tokenType === BORROW_X ? DEPOSIT_X : DEPOSIT_Y
     const depositAssets = totalAssets[depositIndex] ?? 0n
     const burnReserves = mulDiv(event.params.badDebtAssets, reserve, depositAssets + reserve)
-    // Reserves are not written here: the same-tx follow-up Sync sets them and re-derives depositL.
+    // Reserves stay as-is: the same-tx follow-up Sync writes them.
     totalAssets = updateAt(
       totalAssets,
       depositAssets - (event.params.badDebtAssets - burnReserves),
       depositIndex,
     )
+    const depositL = calculateDepositLiquidityAssets(
+      pool.reserveX,
+      pool.reserveY,
+      totalAssets[DEPOSIT_X] ?? 0n,
+      totalAssets[DEPOSIT_Y] ?? 0n,
+      totalAssets[BORROW_L] ?? 0n,
+      totalAssets[BORROW_X] ?? 0n,
+      totalAssets[BORROW_Y] ?? 0n,
+    )
+    totalAssets = updateAt(totalAssets, depositL, DEPOSIT_L)
   }
 
   const updatedPool = {
