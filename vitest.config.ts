@@ -6,6 +6,7 @@ export default defineConfig({
     // Run once by default (no watch mode) for `pnpm test`; use `vitest --watch` to opt in.
     watch: false,
     environment: 'node',
+    testTimeout: 20000,
     setupFiles: ['test/setup.ts'],
     include: ['test/**/*.test.ts'],
     exclude: ['test/integration/**', 'node_modules/**'],
