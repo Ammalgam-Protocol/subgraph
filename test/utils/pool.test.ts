@@ -14,6 +14,7 @@ describe('pool utils', () => {
     expect(pool.createdAtBlockNumber).toBe(20n)
     expect(pool.totalAssets).toEqual([0n, 0n, 0n, 0n, 0n, 0n])
     expect(pool.totalShares).toEqual([0n, 0n, 0n, 0n, 0n, 0n])
+    expect(pool.pendingProtocolInterestTxHash).toBeUndefined()
     expect(pool.txCount).toBe(0)
     expect(pool.depositCount).toBe(0)
     expect(pool.withdrawCount).toBe(0)
@@ -52,11 +53,16 @@ describe('pool utils', () => {
       'protocolFeesTokenL',
       'protocolFeesTokenLAsX',
       'protocolFeesTokenLAsY',
+      'initialLendingFeesTokenX',
+      'initialLendingFeesTokenY',
+      'initialLendingFeesTokenL',
+      'initialLendingFeesTokenLAsX',
+      'initialLendingFeesTokenLAsY',
       'penaltiesTokenL',
       'penaltiesTokenLAsX',
       'penaltiesTokenLAsY',
     ] as const
-    expect(FEE_COLUMNS).toHaveLength(24)
+    expect(FEE_COLUMNS).toHaveLength(29)
     for (const column of FEE_COLUMNS) {
       expect(pool[column].toString()).toBe('0')
     }
@@ -95,11 +101,16 @@ describe('createDefaultPoolDayData', () => {
       'protocolFeesTokenL',
       'protocolFeesTokenLAsX',
       'protocolFeesTokenLAsY',
+      'initialLendingFeesTokenX',
+      'initialLendingFeesTokenY',
+      'initialLendingFeesTokenL',
+      'initialLendingFeesTokenLAsX',
+      'initialLendingFeesTokenLAsY',
       'penaltiesTokenL',
       'penaltiesTokenLAsX',
       'penaltiesTokenLAsY',
     ] as const
-    expect(FEE_COLUMNS).toHaveLength(24)
+    expect(FEE_COLUMNS).toHaveLength(29)
     for (const column of FEE_COLUMNS) {
       expect(dayData[column].toString()).toBe('0')
     }

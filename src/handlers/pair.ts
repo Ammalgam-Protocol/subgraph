@@ -297,6 +297,7 @@ indexer.onEvent(
         event.params.borrowXAssets,
         event.params.borrowYAssets,
       ],
+      pendingProtocolInterestTxHash: protocolInterestL > 0n ? event.transaction.hash : undefined,
       interestAccruedCount: updatedPool.interestAccruedCount + 1,
     })
 

@@ -45,7 +45,7 @@ function seed(indexer: ReturnType<typeof createTestIndexer>) {
 }
 
 describe('lending fee derivation', () => {
-  it('Borrow splits out the fee onto the row, with no pool-level accrual', async () => {
+  it('records the initial lending fee on a Borrow row and the pool aggregates', async () => {
     const indexer = createTestIndexer()
     seed(indexer)
     await indexer.process({
@@ -68,9 +68,14 @@ describe('lending fee derivation', () => {
     const borrow = await indexer.Borrow.getOrThrow(getEventId(CHAIN, '0xlf1', 0))
     expect(borrow.lendingFee).toBe(FEE)
     expect(borrow.isPenalty).toBe(false)
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    const dayData = await indexer.PoolDayData.getOrThrow(`${POOL_ID}-0`)
+    expect(pool.initialLendingFeesTokenX).toBe(FEE)
+    expect(pool.initialLendingFeesTokenL).toBe(0n)
+    expect(dayData.initialLendingFeesTokenX).toBe(FEE)
   })
 
-  it('BorrowLiquidity splits out the fee onto the row, with no pool-level accrual', async () => {
+  it('records the initial lending fee on a BorrowLiquidity row and the pool aggregates', async () => {
     const indexer = createTestIndexer()
     seed(indexer)
     await indexer.process({
@@ -93,6 +98,11 @@ describe('lending fee derivation', () => {
     const borrow = await indexer.Borrow.getOrThrow(getEventId(CHAIN, '0xlf2', 0))
     expect(borrow.lendingFee).toBe(FEE)
     expect(borrow.isPenalty).toBe(false)
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    const dayData = await indexer.PoolDayData.getOrThrow(`${POOL_ID}-0`)
+    expect(pool.initialLendingFeesTokenL).toBe(FEE)
+    expect(pool.initialLendingFeesTokenX).toBe(0n)
+    expect(dayData.initialLendingFeesTokenL).toBe(FEE)
   })
 
   // Penalties reach this handler as pair-sender BorrowLiquidity with no 5-bip fee;

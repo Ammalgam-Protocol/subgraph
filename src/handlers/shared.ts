@@ -46,13 +46,12 @@ type TransferEvent = LoadEvent &
 type PoolAction = 'deposit' | 'withdraw' | 'borrow' | 'repay'
 type TransferType = 'transferred' | 'received'
 
-// The address is passed in rather than read off the event: each event names the field it
-// carries differently (`sender`, `receiver` on Withdraw, `to` on Burn).
+// Each event names the field it carries differently (`sender`, `receiver` on Withdraw, `to` on Burn).
 function isPairAddress(chainId: number, address: string, pool: { id: string }): boolean {
   return scopedId(chainId, address) === pool.id
 }
 
-// Only pair bookkeeping (mintProtocolFees, mintPenalties, burnBadDebt) sends as address(this).
+// Only pair bookkeeping (mintProtocolFees, mintPenalties, burnBadDebt) sends as `address(this)`.
 // Not usable on Withdraw: ownerBurn is onlyOwner, so the pair is the sender on every withdrawal.
 function isPairSender(
   event: { chainId: number; params: { sender: string } },
@@ -355,14 +354,23 @@ export async function handleLendingTokenTransfer(event: TransferEvent, context: 
   }
 }
 
-type FeeField = 'protocolFeesTokenX' | 'protocolFeesTokenY' | 'protocolFeesTokenL'
+type ProtocolFeeField = 'protocolFeesTokenX' | 'protocolFeesTokenY' | 'protocolFeesTokenL'
+type InitialLendingFeeField =
+  | 'initialLendingFeesTokenX'
+  | 'initialLendingFeesTokenY'
+  | 'initialLendingFeesTokenL'
 
-// Partial: a deposit-side token never has a protocol-fee column and vice versa, so a miss is a
-// mis-wired lendingToken. Bucketing it into L would silently corrupt the aggregate.
-const PROTOCOL_FEE_FIELDS: Partial<Record<number, FeeField>> = {
+// Both maps are Partial: deposits have protocol fees, borrows have initial fees.
+const PROTOCOL_FEE_FIELDS: Partial<Record<number, ProtocolFeeField>> = {
   [DEPOSIT_L]: 'protocolFeesTokenL',
   [DEPOSIT_X]: 'protocolFeesTokenX',
   [DEPOSIT_Y]: 'protocolFeesTokenY',
+}
+
+const INITIAL_LENDING_FEE_FIELDS: Partial<Record<number, InitialLendingFeeField>> = {
+  [BORROW_L]: 'initialLendingFeesTokenL',
+  [BORROW_X]: 'initialLendingFeesTokenX',
+  [BORROW_Y]: 'initialLendingFeesTokenY',
 }
 
 type PoolFeeDelta = Partial<Omit<PoolDayData, 'id' | 'pool_id' | 'date'>>
@@ -443,9 +451,18 @@ export async function handleDepositAction(
 
       // L fees have no native X/Y split, so twin the mint into both legs
       if (lendingToken.tokenType === DEPOSIT_L) {
-        const derivedTotalAssets = updateAssets(updatedPool)
-        const activeLiquidity =
-          (derivedTotalAssets[DEPOSIT_L] ?? 0n) - (updatedPool.totalAssets[BORROW_L] ?? 0n)
+        const { missingX, missingY } = missingAssets(
+          updatedPool.totalAssets[BORROW_X] ?? 0n,
+          updatedPool.totalAssets[DEPOSIT_X] ?? 0n,
+          updatedPool.totalAssets[BORROW_Y] ?? 0n,
+          updatedPool.totalAssets[DEPOSIT_Y] ?? 0n,
+        )
+        const activeLiquidity = depletionAdjustedActiveLiquidity(
+          updatedPool.reserveX,
+          updatedPool.reserveY,
+          missingX,
+          missingY,
+        )
         const feeAsXY = convertLToXAndY(
           event.params.assets,
           updatedPool.reserveX,
@@ -460,16 +477,22 @@ export async function handleDepositAction(
       context.log.warn(`no protocol fee column for tokenType ${lendingToken.tokenType}`)
     }
 
-    // DEPOSIT_L fee mints dilute shares without adding assets, so we back out the fee.
     if (lendingToken.tokenType === DEPOSIT_L) {
-      const totalAssets = updateAssets(updatedPool)
-      updatedPool = {
-        ...updatedPool,
-        totalAssets: updateAt(
-          totalAssets,
-          (totalAssets[DEPOSIT_L] ?? 0n) - event.params.assets,
-          DEPOSIT_L,
-        ),
+      // Protocol interest already reached deposit L via borrow L; an initial lending fee did not.
+      const hasPendingProtocolInterest =
+        updatedPool.pendingProtocolInterestTxHash === event.transaction.hash
+      updatedPool = { ...updatedPool, pendingProtocolInterestTxHash: undefined }
+
+      if (hasPendingProtocolInterest) {
+        const totalAssets = updateAssets(updatedPool)
+        updatedPool = {
+          ...updatedPool,
+          totalAssets: updateAt(
+            totalAssets,
+            (totalAssets[DEPOSIT_L] ?? 0n) - event.params.assets,
+            DEPOSIT_L,
+          ),
+        }
       }
       context.Pool.set(updatedPool)
     }
@@ -555,7 +578,40 @@ export async function handleBorrowAction(
       penaltiesTokenLAsX: penaltyAsXY.x,
       penaltiesTokenLAsY: penaltyAsXY.y,
     })
-  } else if (!split) {
+  } else if (split) {
+    const field = INITIAL_LENDING_FEE_FIELDS[lendingToken.tokenType]
+    if (field) {
+      let deltas: PoolFeeDelta = { [field]: split.lendingFee }
+      if (lendingToken.tokenType === BORROW_L) {
+        const { missingX, missingY } = missingAssets(
+          updatedPool.totalAssets[BORROW_X] ?? 0n,
+          updatedPool.totalAssets[DEPOSIT_X] ?? 0n,
+          updatedPool.totalAssets[BORROW_Y] ?? 0n,
+          updatedPool.totalAssets[DEPOSIT_Y] ?? 0n,
+        )
+        const activeLiquidity = depletionAdjustedActiveLiquidity(
+          updatedPool.reserveX,
+          updatedPool.reserveY,
+          missingX,
+          missingY,
+        )
+        const feeAsXY = convertLToXAndY(
+          split.lendingFee,
+          updatedPool.reserveX,
+          updatedPool.reserveY,
+          activeLiquidity,
+        )
+        deltas = {
+          ...deltas,
+          initialLendingFeesTokenLAsX: feeAsXY.x,
+          initialLendingFeesTokenLAsY: feeAsXY.y,
+        }
+      }
+      await accrueFees(context, updatedPool, event.block.timestamp, deltas)
+    } else {
+      context.log.warn(`no initial lending fee column for tokenType ${lendingToken.tokenType}`)
+    }
+  } else {
     // INITIAL_LENDING_FEE_BIPS changed upstream; null beats a wrong number.
     context.log.warn(
       `lending fee inversion failed for borrow of ${event.params.assets} on asset ${lendingToken.id}`,

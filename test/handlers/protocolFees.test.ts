@@ -1,6 +1,7 @@
 import { createTestIndexer } from 'envio'
 import { describe, expect, it } from 'vitest'
 
+import { ADDRESS_ZERO, BORROW_L } from '../../src/utils/constants'
 import { getPositionId, scopedId } from '../../src/utils/id'
 import { createDefaultPool } from '../../src/utils/pool'
 
@@ -51,6 +52,19 @@ function seed(indexer: ReturnType<typeof createTestIndexer>) {
     pendingShares: undefined,
   })
   indexer.Pool.set(createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n))
+}
+
+function seedBorrowLiquidityToken(indexer: ReturnType<typeof createTestIndexer>) {
+  indexer.LendingToken.set({
+    id: LEND_BL_ID,
+    symbol: 'dLP',
+    name: 'Debt LP',
+    decimals: 18,
+    pool_id: POOL_ID,
+    tokenType: BORROW_L,
+    pendingAssets: undefined,
+    pendingShares: undefined,
+  })
 }
 
 describe('protocol fee aggregation', () => {
@@ -269,7 +283,6 @@ describe('D11: pair-sender L fee mint backs out of deposit L', () => {
     const indexer = createTestIndexer()
     seedAccrualPool(indexer)
     const block = { number: 20, timestamp: 200 }
-    const ZERO = '0x0000000000000000000000000000000000000000'
 
     await indexer.process({
       chains: {
@@ -317,7 +330,7 @@ describe('D11: pair-sender L fee mint backs out of deposit L', () => {
               logIndex: 3,
               block,
               transaction: { hash: '0xacc', from: ALICE },
-              params: { from: ZERO, to: FEE_TO, value: 30n },
+              params: { from: ADDRESS_ZERO, to: FEE_TO, value: 30n },
             },
             {
               contract: 'ERC4626Deposit',
@@ -335,7 +348,7 @@ describe('D11: pair-sender L fee mint backs out of deposit L', () => {
               logIndex: 5,
               block,
               transaction: { hash: '0xacc', from: ALICE },
-              params: { from: ZERO, to: FEE_TO, value: 20n },
+              params: { from: ADDRESS_ZERO, to: FEE_TO, value: 20n },
             },
             {
               contract: 'ERC20DepositLiquidity',
@@ -353,7 +366,7 @@ describe('D11: pair-sender L fee mint backs out of deposit L', () => {
               logIndex: 7,
               block,
               transaction: { hash: '0xacc', from: ALICE },
-              params: { from: ZERO, to: FEE_TO, value: 5n },
+              params: { from: ADDRESS_ZERO, to: FEE_TO, value: 5n },
             },
           ],
         },
@@ -365,13 +378,109 @@ describe('D11: pair-sender L fee mint backs out of deposit L', () => {
     // unchanged by the L mint's own 5, which only diluted shares.
     expect(pool.totalAssets[0]).toBe(1050n)
     expect(pool.totalShares[0]).toBe(1005n) // 1000 seeded + 5 minted: dilution, not growth
+    expect(pool.pendingProtocolInterestTxHash).toBeUndefined()
+
+    const feeToId = scopedId(CHAIN, FEE_TO)
+    const position = await indexer.Position.getOrThrow(getPositionId(feeToId, POOL_ID))
+    expect(position.shares[0]).toBe(5n)
+    expect(position.assets[0]).toBe(5n)
+    expect(position.principal).toBe(55n)
   })
 
-  it('exposes the re-derived-minus-fee state between the Mint and its Transfer', async () => {
+  it('keeps an initial lending fee on borrow L in the recipient position through the closing Sync', async () => {
     const indexer = createTestIndexer()
     seedAccrualPool(indexer)
-    const block = { number: 20, timestamp: 200 }
-    const ZERO = '0x0000000000000000000000000000000000000000'
+    seedBorrowLiquidityToken(indexer)
+    const block = { number: 30, timestamp: 300 }
+    indexer.Pool.set({
+      ...createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n),
+      reserveX: 1000000n,
+      reserveY: 1000000n,
+      totalAssets: [1000000n, 0n, 0n, 0n, 0n, 0n],
+      totalShares: [1000000n, 0n, 0n, 0n, 0n, 0n],
+    })
+
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'ERC20DepositLiquidity',
+              event: 'Mint',
+              srcAddress: LEND_L,
+              logIndex: 0,
+              block,
+              transaction: { hash: '0xinitial-l', from: ALICE },
+              params: { sender: POOL, to: FEE_TO, assets: 1n, shares: 1n },
+            },
+            {
+              contract: 'ERC20DepositLiquidity',
+              event: 'Transfer',
+              srcAddress: LEND_L,
+              logIndex: 1,
+              block,
+              transaction: { hash: '0xinitial-l', from: ALICE },
+              params: { from: ADDRESS_ZERO, to: FEE_TO, value: 1n },
+            },
+            {
+              contract: 'ERC20DebtLiquidity',
+              event: 'BorrowLiquidity',
+              srcAddress: LEND_BL,
+              logIndex: 2,
+              block,
+              transaction: { hash: '0xinitial-l', from: ALICE },
+              params: { sender: ALICE, to: ALICE, assets: 2001n, shares: 2001n },
+            },
+            {
+              contract: 'ERC20DebtLiquidity',
+              event: 'Transfer',
+              srcAddress: LEND_BL,
+              logIndex: 3,
+              block,
+              transaction: { hash: '0xinitial-l', from: ALICE },
+              params: { from: ADDRESS_ZERO, to: ALICE, value: 2001n },
+            },
+            {
+              contract: 'AmmalgamPair',
+              event: 'Sync',
+              srcAddress: POOL,
+              logIndex: 4,
+              block,
+              transaction: { hash: '0xinitial-l', from: ALICE },
+              params: { reserveXAssets: 998000n, reserveYAssets: 998000n },
+            },
+          ],
+        },
+      },
+    })
+
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    expect(pool.totalAssets).toEqual([1000001n, 0n, 0n, 2001n, 0n, 0n])
+    expect(pool.totalShares).toEqual([1000001n, 0n, 0n, 2001n, 0n, 0n])
+    expect(pool.protocolFeesTokenL).toBe(1n)
+
+    const feeToId = scopedId(CHAIN, FEE_TO)
+    const position = await indexer.Position.getOrThrow(getPositionId(feeToId, POOL_ID))
+    expect(position.shares[0]).toBe(1n)
+    expect(position.assets[0]).toBe(1n)
+    expect(position.principal).toBe(1n)
+    expect(pool.initialLendingFeesTokenL).toBe(1n)
+    expect(pool.initialLendingFeesTokenLAsX).toBe(1n)
+    expect(pool.initialLendingFeesTokenLAsY).toBe(1n)
+  })
+
+  it('backs out only protocol interest when it shares a transaction with an initial lending fee', async () => {
+    const indexer = createTestIndexer()
+    seedAccrualPool(indexer)
+    seedBorrowLiquidityToken(indexer)
+    const block = { number: 31, timestamp: 301 }
+    indexer.Pool.set({
+      ...createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n),
+      reserveX: 1000000n,
+      reserveY: 1000000n,
+      totalAssets: [1000100n, 0n, 0n, 100n, 0n, 0n],
+      totalShares: [1000100n, 0n, 0n, 100n, 0n, 0n],
+    })
 
     await indexer.process({
       chains: {
@@ -383,186 +492,170 @@ describe('D11: pair-sender L fee mint backs out of deposit L', () => {
               srcAddress: POOL,
               logIndex: 0,
               block,
-              transaction: { hash: '0xacc', from: ALICE },
+              transaction: { hash: '0xmixed-l', from: ALICE },
               params: {
-                reserveXAssets: 1000n,
-                reserveYAssets: 1000n,
-                depositXAssets: 500n,
-                depositYAssets: 500n,
-                borrowLAssets: 50n,
+                reserveXAssets: 1000000n,
+                reserveYAssets: 1000000n,
+                depositXAssets: 0n,
+                depositYAssets: 0n,
+                borrowLAssets: 110n,
                 borrowXAssets: 0n,
                 borrowYAssets: 0n,
               },
             },
             {
-              contract: 'ERC4626Deposit',
-              event: 'Deposit',
-              srcAddress: LEND_X,
+              contract: 'AmmalgamPair',
+              event: 'Sync',
+              srcAddress: POOL,
               logIndex: 1,
               block,
-              transaction: { hash: '0xacc', from: ALICE },
-              params: { sender: POOL, owner: FEE_TO, assets: 30n, shares: 30n },
-            },
-            {
-              contract: 'ERC4626Deposit',
-              event: 'Transfer',
-              srcAddress: LEND_X,
-              logIndex: 2,
-              block,
-              transaction: { hash: '0xacc', from: ALICE },
-              params: { from: ZERO, to: FEE_TO, value: 30n },
-            },
-            {
-              contract: 'ERC4626Deposit',
-              event: 'Deposit',
-              srcAddress: LEND_Y,
-              logIndex: 3,
-              block,
-              transaction: { hash: '0xacc', from: ALICE },
-              params: { sender: POOL, owner: FEE_TO, assets: 20n, shares: 20n },
-            },
-            {
-              contract: 'ERC4626Deposit',
-              event: 'Transfer',
-              srcAddress: LEND_Y,
-              logIndex: 4,
-              block,
-              transaction: { hash: '0xacc', from: ALICE },
-              params: { from: ZERO, to: FEE_TO, value: 20n },
+              transaction: { hash: '0xmixed-l', from: ALICE },
+              params: { reserveXAssets: 1000000n, reserveYAssets: 1000000n },
             },
             {
               contract: 'ERC20DepositLiquidity',
               event: 'Mint',
+              srcAddress: LEND_L,
+              logIndex: 2,
+              block,
+              transaction: { hash: '0xmixed-l', from: ALICE },
+              params: { sender: POOL, to: FEE_TO, assets: 1n, shares: 1n },
+            },
+            {
+              contract: 'ERC20DepositLiquidity',
+              event: 'Transfer',
+              srcAddress: LEND_L,
+              logIndex: 3,
+              block,
+              transaction: { hash: '0xmixed-l', from: ALICE },
+              params: { from: ADDRESS_ZERO, to: FEE_TO, value: 1n },
+            },
+            {
+              contract: 'ERC20DepositLiquidity',
+              event: 'Mint',
+              srcAddress: LEND_L,
+              logIndex: 4,
+              block,
+              transaction: { hash: '0xmixed-l', from: ALICE },
+              params: { sender: POOL, to: FEE_TO, assets: 10n, shares: 10n },
+            },
+            {
+              contract: 'ERC20DepositLiquidity',
+              event: 'Transfer',
               srcAddress: LEND_L,
               logIndex: 5,
               block,
-              transaction: { hash: '0xacc', from: ALICE },
-              params: { sender: POOL, to: FEE_TO, assets: 5n, shares: 5n },
-            },
-          ],
-        },
-      },
-    })
-
-    // Snapshot right after the Mint event, before its Transfer lands the exact assets back: the
-    // mint's own delta briefly nets out, re-derived 1050 minus the fee 5.
-    const pool = await indexer.Pool.getOrThrow(POOL_ID)
-    expect(pool.totalAssets[0]).toBe(1045n)
-  })
-
-  function seedBorrowLiquidityPool(indexer: ReturnType<typeof createTestIndexer>) {
-    seed(indexer)
-    indexer.LendingToken.set({
-      id: LEND_BL_ID,
-      symbol: 'dLP',
-      name: 'Debt LP',
-      decimals: 18,
-      pool_id: POOL_ID,
-      tokenType: 3, // BORROW_L
-      pendingAssets: undefined,
-      pendingShares: undefined,
-    })
-    indexer.Pool.set({
-      ...createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n),
-      reserveX: 1000n,
-      reserveY: 1000n,
-      totalAssets: [1000n, 500n, 500n, 0n, 0n, 0n],
-      totalShares: [1000n, 500n, 500n, 0n, 0n, 0n],
-    })
-  }
-
-  it("borrowLiquidity's initial-lending L mint leaves deposit L unchanged by the mint itself", async () => {
-    const indexer = createTestIndexer()
-    seedBorrowLiquidityPool(indexer)
-    const ZERO = '0x0000000000000000000000000000000000000000'
-
-    await indexer.process({
-      chains: {
-        11155111: {
-          simulate: [
-            {
-              contract: 'ERC20DepositLiquidity',
-              event: 'Mint',
-              srcAddress: LEND_L,
-              logIndex: 0,
-              block: { number: 30, timestamp: 300 },
-              transaction: { hash: '0xbl', from: ALICE },
-              params: { sender: POOL, to: FEE_TO, assets: 5n, shares: 5n },
-            },
-            {
-              contract: 'ERC20DepositLiquidity',
-              event: 'Transfer',
-              srcAddress: LEND_L,
-              logIndex: 1,
-              block: { number: 30, timestamp: 300 },
-              transaction: { hash: '0xbl', from: ALICE },
-              params: { from: ZERO, to: FEE_TO, value: 5n },
-            },
-          ],
-        },
-      },
-    })
-
-    // Right after the mint's own Transfer, deposit L is exactly where it started: the mint
-    // diluted shares, it did not grow deposit L.
-    const pool = await indexer.Pool.getOrThrow(POOL_ID)
-    expect(pool.totalAssets[0]).toBe(1000n)
-  })
-
-  it("borrowLiquidity's BORROW_L Transfer re-derives the final total after the fee mint", async () => {
-    const indexer = createTestIndexer()
-    seedBorrowLiquidityPool(indexer)
-    const ZERO = '0x0000000000000000000000000000000000000000'
-
-    await indexer.process({
-      chains: {
-        11155111: {
-          simulate: [
-            {
-              contract: 'ERC20DepositLiquidity',
-              event: 'Mint',
-              srcAddress: LEND_L,
-              logIndex: 0,
-              block: { number: 30, timestamp: 300 },
-              transaction: { hash: '0xbl', from: ALICE },
-              params: { sender: POOL, to: FEE_TO, assets: 5n, shares: 5n },
-            },
-            {
-              contract: 'ERC20DepositLiquidity',
-              event: 'Transfer',
-              srcAddress: LEND_L,
-              logIndex: 1,
-              block: { number: 30, timestamp: 300 },
-              transaction: { hash: '0xbl', from: ALICE },
-              params: { from: ZERO, to: FEE_TO, value: 5n },
+              transaction: { hash: '0xmixed-l', from: ALICE },
+              params: { from: ADDRESS_ZERO, to: FEE_TO, value: 10n },
             },
             {
               contract: 'ERC20DebtLiquidity',
               event: 'BorrowLiquidity',
               srcAddress: LEND_BL,
-              logIndex: 2,
-              block: { number: 30, timestamp: 300 },
-              transaction: { hash: '0xbl', from: ALICE },
-              params: { sender: ALICE, to: ALICE, assets: 50n, shares: 50n },
+              logIndex: 6,
+              block,
+              transaction: { hash: '0xmixed-l', from: ALICE },
+              params: { sender: ALICE, to: ALICE, assets: 20010n, shares: 18191n },
             },
             {
               contract: 'ERC20DebtLiquidity',
               event: 'Transfer',
               srcAddress: LEND_BL,
-              logIndex: 3,
-              block: { number: 30, timestamp: 300 },
-              transaction: { hash: '0xbl', from: ALICE },
-              params: { from: ZERO, to: ALICE, value: 50n },
+              logIndex: 7,
+              block,
+              transaction: { hash: '0xmixed-l', from: ALICE },
+              params: { from: ADDRESS_ZERO, to: ALICE, value: 18191n },
+            },
+            {
+              contract: 'AmmalgamPair',
+              event: 'Sync',
+              srcAddress: POOL,
+              logIndex: 8,
+              block,
+              transaction: { hash: '0xmixed-l', from: ALICE },
+              params: { reserveXAssets: 980000n, reserveYAssets: 980000n },
             },
           ],
         },
       },
     })
 
-    // The borrow's own BORROW_L Transfer re-derives and lands the correct final total regardless
-    // of the L mint's intermediate value: the same re-derivation path handles both events.
     const pool = await indexer.Pool.getOrThrow(POOL_ID)
-    expect(pool.totalAssets[0]).toBe(1050n)
+    expect(pool.totalAssets[0]).toBe(1000120n)
+    expect(pool.totalShares[0]).toBe(1000111n)
+    expect(pool.protocolInterestTokenL).toBe(1n)
+    expect(pool.protocolFeesTokenL).toBe(11n)
+    expect(pool.pendingProtocolInterestTxHash).toBeUndefined()
+
+    const feeToId = scopedId(CHAIN, FEE_TO)
+    const position = await indexer.Position.getOrThrow(getPositionId(feeToId, POOL_ID))
+    expect(position.shares[0]).toBe(11n)
+    expect(position.assets[0]).toBe(11n)
+    expect(position.principal).toBe(11n)
+    expect(pool.initialLendingFeesTokenL).toBe(10n)
+    expect(pool.initialLendingFeesTokenLAsX).toBe(10n)
+    expect(pool.initialLendingFeesTokenLAsY).toBe(10n)
+  })
+
+  it('does not treat a next-transaction initial lending fee as pending protocol interest', async () => {
+    const indexer = createTestIndexer()
+    seedAccrualPool(indexer)
+    seedBorrowLiquidityToken(indexer)
+    indexer.Pool.set({
+      ...createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n),
+      reserveX: 1000000n,
+      reserveY: 1000000n,
+      totalAssets: [1000100n, 0n, 0n, 100n, 0n, 0n],
+      totalShares: [1000100n, 0n, 0n, 100n, 0n, 0n],
+    })
+
+    await indexer.process({
+      chains: {
+        11155111: {
+          simulate: [
+            {
+              contract: 'AmmalgamPair',
+              event: 'InterestAccrued',
+              srcAddress: POOL,
+              logIndex: 0,
+              block: { number: 32, timestamp: 302 },
+              transaction: { hash: '0xstaged-interest', from: ALICE },
+              params: {
+                reserveXAssets: 1000000n,
+                reserveYAssets: 1000000n,
+                depositXAssets: 0n,
+                depositYAssets: 0n,
+                borrowLAssets: 110n,
+                borrowXAssets: 0n,
+                borrowYAssets: 0n,
+              },
+            },
+            {
+              contract: 'ERC20DepositLiquidity',
+              event: 'Mint',
+              srcAddress: LEND_L,
+              logIndex: 0,
+              block: { number: 33, timestamp: 303 },
+              transaction: { hash: '0xlater-initial', from: ALICE },
+              params: { sender: POOL, to: FEE_TO, assets: 1n, shares: 1n },
+            },
+            {
+              contract: 'ERC20DepositLiquidity',
+              event: 'Transfer',
+              srcAddress: LEND_L,
+              logIndex: 1,
+              block: { number: 33, timestamp: 303 },
+              transaction: { hash: '0xlater-initial', from: ALICE },
+              params: { from: ADDRESS_ZERO, to: FEE_TO, value: 1n },
+            },
+          ],
+        },
+      },
+    })
+
+    const pool = await indexer.Pool.getOrThrow(POOL_ID)
+    expect(pool.totalAssets[0]).toBe(1000111n)
+    expect(pool.pendingProtocolInterestTxHash).toBeUndefined()
   })
 })
 
@@ -571,7 +664,6 @@ describe('D2: protocol fee mint twins pair with InterestAccrued protocol interes
     const indexer = createTestIndexer()
     seedAccrualPool(indexer)
     const block = { number: 20, timestamp: 200 }
-    const ZERO = '0x0000000000000000000000000000000000000000'
 
     await indexer.process({
       chains: {
@@ -619,7 +711,7 @@ describe('D2: protocol fee mint twins pair with InterestAccrued protocol interes
               logIndex: 3,
               block,
               transaction: { hash: '0xti9', from: ALICE },
-              params: { from: ZERO, to: FEE_TO, value: 1n },
+              params: { from: ADDRESS_ZERO, to: FEE_TO, value: 1n },
             },
           ],
         },
@@ -651,7 +743,6 @@ describe('D2: protocol fee mint twins pair with InterestAccrued protocol interes
       totalShares: [100n, 100n, 1000n, 0n, 100n, 200n],
     })
     const block = { number: 21, timestamp: 201 }
-    const ZERO = '0x0000000000000000000000000000000000000000'
 
     await indexer.process({
       chains: {
@@ -699,7 +790,7 @@ describe('D2: protocol fee mint twins pair with InterestAccrued protocol interes
               logIndex: 3,
               block,
               transaction: { hash: '0xordered', from: ALICE },
-              params: { from: ZERO, to: FEE_TO, value: 5n },
+              params: { from: ADDRESS_ZERO, to: FEE_TO, value: 5n },
             },
             {
               contract: 'ERC4626Deposit',
@@ -717,7 +808,7 @@ describe('D2: protocol fee mint twins pair with InterestAccrued protocol interes
               logIndex: 5,
               block,
               transaction: { hash: '0xordered', from: ALICE },
-              params: { from: ZERO, to: FEE_TO, value: 2n },
+              params: { from: ADDRESS_ZERO, to: FEE_TO, value: 2n },
             },
             {
               contract: 'ERC20DepositLiquidity',
@@ -735,7 +826,7 @@ describe('D2: protocol fee mint twins pair with InterestAccrued protocol interes
               logIndex: 7,
               block,
               transaction: { hash: '0xordered', from: ALICE },
-              params: { from: ZERO, to: FEE_TO, value: 5n },
+              params: { from: ADDRESS_ZERO, to: FEE_TO, value: 5n },
             },
           ],
         },
