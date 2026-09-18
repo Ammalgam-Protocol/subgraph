@@ -1,8 +1,8 @@
 import { createTestIndexer } from 'envio'
 import { describe, expect, it } from 'vitest'
-
 import { getEventId, scopedId } from '../../src/utils/id'
 import { createDefaultPool } from '../../src/utils/pool'
+import { lendingTokensCreatedRegistration, testBlockNumber } from './testBlock'
 
 const CHAIN = 11155111
 const POOL = '0xaa01000000000000000000000000000000000001'
@@ -10,36 +10,34 @@ const DEBT_X = '0x00000000000000000000000000000000000000b4'
 const DEBT_L = '0x00000000000000000000000000000000000000b3'
 const OWNER = '0xc0de000000000000000000000000000000000001'
 const SENDER = '0x5e4d000000000000000000000000000000000001'
+const UNUSED_LEND_1 = '0x00000000000000000000000000000000000000e1'
+const UNUSED_LEND_2 = '0x00000000000000000000000000000000000000e2'
+const UNUSED_LEND_3 = '0x00000000000000000000000000000000000000e3'
 
 const POOL_ID = scopedId(CHAIN, POOL)
-const DEBT_X_ID = scopedId(CHAIN, DEBT_X)
-const DEBT_L_ID = scopedId(CHAIN, DEBT_L)
 
 // principal 2e18 carries fee ceil(2e18 * 5 / 10000) = 1e15; amount is post-fee.
 const PRINCIPAL = 2000000000000000000n
 const FEE = 1000000000000000n
 const AMOUNT = PRINCIPAL + FEE
 
-function seed(indexer: ReturnType<typeof createTestIndexer>) {
-  indexer.LendingToken.set({
-    id: DEBT_X_ID,
-    symbol: 'dTKX',
-    name: 'Debt TKX',
-    decimals: 18,
-    pool_id: POOL_ID,
-    tokenType: 4, // BORROW_X
-    pendingAssets: undefined,
-    pendingShares: undefined,
-  })
-  indexer.LendingToken.set({
-    id: DEBT_L_ID,
-    symbol: 'dAMG',
-    name: 'Debt Liquidity',
-    decimals: 18,
-    pool_id: POOL_ID,
-    tokenType: 3, // BORROW_L
-    pendingAssets: undefined,
-    pendingShares: undefined,
+async function seed(indexer: ReturnType<typeof createTestIndexer>) {
+  await indexer.process({
+    chains: {
+      11155111: {
+        simulate: [
+          lendingTokensCreatedRegistration({
+            pair: POOL,
+            depositL: UNUSED_LEND_1,
+            depositX: UNUSED_LEND_2,
+            depositY: UNUSED_LEND_3,
+            borrowL: DEBT_L,
+            borrowX: DEBT_X,
+            borrowY: UNUSED_LEND_1,
+          }),
+        ],
+      },
+    },
   })
   indexer.Pool.set(createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n))
 }
@@ -47,7 +45,7 @@ function seed(indexer: ReturnType<typeof createTestIndexer>) {
 describe('lending fee derivation', () => {
   it('records the initial lending fee on a Borrow row and the pool aggregates', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -57,7 +55,7 @@ describe('lending fee derivation', () => {
               event: 'Borrow',
               srcAddress: DEBT_X,
               logIndex: 0,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xlf1', from: OWNER },
               params: { sender: SENDER, to: OWNER, assets: AMOUNT, shares: 1n },
             },
@@ -77,7 +75,7 @@ describe('lending fee derivation', () => {
 
   it('records the initial lending fee on a BorrowLiquidity row and the pool aggregates', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -87,7 +85,7 @@ describe('lending fee derivation', () => {
               event: 'BorrowLiquidity',
               srcAddress: DEBT_L,
               logIndex: 0,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xlf2', from: OWNER },
               params: { sender: SENDER, to: OWNER, assets: AMOUNT, shares: 1n },
             },
@@ -109,7 +107,7 @@ describe('lending fee derivation', () => {
   // AMOUNT is still invertible, so an unguarded handler would wrongly report a fee.
   it('records a pair-sender BorrowLiquidity as a penalty with no lending fee', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -119,7 +117,7 @@ describe('lending fee derivation', () => {
               event: 'BorrowLiquidity',
               srcAddress: DEBT_L,
               logIndex: 0,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xlf4', from: OWNER },
               params: { sender: POOL, to: POOL, assets: AMOUNT, shares: 1n },
             },
@@ -135,7 +133,7 @@ describe('lending fee derivation', () => {
   // mintPenalties only mints BORROW_L, so tokenX/tokenY debt has no penalty path at all.
   it('never flags a Borrow as a penalty, even when the pair is the sender', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -145,7 +143,7 @@ describe('lending fee derivation', () => {
               event: 'Borrow',
               srcAddress: DEBT_X,
               logIndex: 0,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xlf5', from: OWNER },
               params: { sender: POOL, to: POOL, assets: AMOUNT, shares: 1n },
             },
@@ -160,7 +158,7 @@ describe('lending fee derivation', () => {
 
   it('leaves lendingFee null when no principal solves the fee equation', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -170,7 +168,7 @@ describe('lending fee derivation', () => {
               event: 'Borrow',
               srcAddress: DEBT_X,
               logIndex: 0,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xlf3', from: OWNER },
               // amount 1 is unreachable under the 5-bip formula (0 -> 0, 1 -> 2).
               params: { sender: SENDER, to: OWNER, assets: 1n, shares: 1n },

@@ -1,7 +1,7 @@
 import { createTestIndexer } from 'envio'
 import { describe, expect, it } from 'vitest'
-
 import { scopedId } from '../../src/utils/id'
+import { testBlockNumber } from './testBlock'
 
 // Token metadata is fetched through `context.effect` -> tokenEffects, which runs
 // inside the Envio worker thread. Main-thread `vi.mock('viem')` cannot reach the
@@ -36,7 +36,7 @@ describe('factory handlers', () => {
             {
               contract: 'AmmalgamFactory',
               event: 'PairCreated',
-              block: { number: 100, timestamp: 1000 },
+              block: { number: testBlockNumber(100), timestamp: 1000 },
               params: { tokenX: TX, tokenY: TY, pair: PAIR, allPairsLength: 1n },
             },
           ],
@@ -57,7 +57,7 @@ describe('factory handlers', () => {
     expect(pool.tokenY_id).toBe(scopedId(CHAIN, TY))
     // Offline fallback metadata: symbol resolves to 'unknown' for both tokens.
     expect(pool.name).toBe('unknown-unknown')
-    expect(pool.createdAtBlockNumber).toBe(100n)
+    expect(pool.createdAtBlockNumber).toBe(BigInt(testBlockNumber(100)))
     expect(pool.createdAtTimestamp).toBe(1000n)
 
     const depositX = await indexer.LendingToken.getOrThrow(scopedId(CHAIN, LEND.depositX))

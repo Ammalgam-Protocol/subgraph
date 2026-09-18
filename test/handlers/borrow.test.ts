@@ -1,8 +1,8 @@
 import { createTestIndexer } from 'envio'
 import { describe, expect, it } from 'vitest'
-
 import { getEventId, getPositionId, scopedId } from '../../src/utils/id'
 import { createDefaultPool } from '../../src/utils/pool'
+import { lendingTokensCreatedRegistration, testBlockNumber } from './testBlock'
 
 const CHAIN = 11155111
 const POOL = '0xaa01000000000000000000000000000000000001'
@@ -10,22 +10,39 @@ const DEBT_X = '0x00000000000000000000000000000000000000b1' // tokenType DEPOSIT
 const OWNER = '0xc0de000000000000000000000000000000000001'
 const SENDER = '0x5e4d000000000000000000000000000000000001'
 const SOMEONE_ELSE = '0x5e4d000000000000000000000000000000000002'
+const UNUSED_LEND_1 = '0x00000000000000000000000000000000000000e1'
+const UNUSED_LEND_2 = '0x00000000000000000000000000000000000000e2'
+const UNUSED_LEND_3 = '0x00000000000000000000000000000000000000e3'
+const UNUSED_LEND_4 = '0x00000000000000000000000000000000000000e4'
+const UNUSED_LEND_5 = '0x00000000000000000000000000000000000000e5'
 
 const POOL_ID = scopedId(CHAIN, POOL)
 const DEBT_X_ID = scopedId(CHAIN, DEBT_X)
 const OWNER_ID = scopedId(CHAIN, OWNER)
 const POSITION_ID = getPositionId(OWNER_ID, POOL_ID)
 
-function seed(indexer: ReturnType<typeof createTestIndexer>) {
+// Registration tags DEBT_X BORROW_X (4); these tests exercise the DEPOSIT_X (1) index path.
+async function seed(indexer: ReturnType<typeof createTestIndexer>) {
+  await indexer.process({
+    chains: {
+      11155111: {
+        simulate: [
+          lendingTokensCreatedRegistration({
+            pair: POOL,
+            depositL: UNUSED_LEND_1,
+            depositX: UNUSED_LEND_2,
+            depositY: UNUSED_LEND_3,
+            borrowL: UNUSED_LEND_4,
+            borrowX: DEBT_X,
+            borrowY: UNUSED_LEND_5,
+          }),
+        ],
+      },
+    },
+  })
   indexer.LendingToken.set({
-    id: DEBT_X_ID,
-    symbol: 'dTKX',
-    name: 'Debt TKX',
-    decimals: 18,
-    pool_id: POOL_ID,
+    ...(await indexer.LendingToken.getOrThrow(DEBT_X_ID)),
     tokenType: 1, // DEPOSIT_X index -> principal uses convertXToL
-    pendingAssets: undefined,
-    pendingShares: undefined,
   })
   const pool = createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n)
   indexer.Pool.set({ ...pool, reserveX: 1000n, totalAssets: [1000n, 0n, 0n, 0n, 0n, 0n] })
@@ -34,7 +51,7 @@ function seed(indexer: ReturnType<typeof createTestIndexer>) {
 describe('borrow handlers', () => {
   it('Borrow bumps counters and writes the entity; totals untouched', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -44,7 +61,7 @@ describe('borrow handlers', () => {
               event: 'Borrow',
               srcAddress: DEBT_X,
               logIndex: 0,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xbor', from: OWNER },
               params: { sender: SENDER, to: OWNER, assets: 100n, shares: 90n },
             },
@@ -66,7 +83,7 @@ describe('borrow handlers', () => {
 
   it('Repay bumps counters and writes the entity; totals/principal untouched', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     indexer.Position.set({
       id: POSITION_ID,
       user_id: OWNER_ID,
@@ -93,7 +110,7 @@ describe('borrow handlers', () => {
               event: 'Repay',
               srcAddress: DEBT_X,
               logIndex: 0,
-              block: { number: 11, timestamp: 110 },
+              block: { number: testBlockNumber(11), timestamp: 110 },
               transaction: { hash: '0xrep', from: OWNER },
               params: { sender: SENDER, onBehalfOf: OWNER, assets: 100n, shares: 90n },
             },
@@ -113,7 +130,7 @@ describe('borrow handlers', () => {
   // already records the writeoff, so it must not count as user repay activity.
   it('Repay with the pair as sender skips counters but keeps the entity', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -123,7 +140,7 @@ describe('borrow handlers', () => {
               event: 'Repay',
               srcAddress: DEBT_X,
               logIndex: 0,
-              block: { number: 11, timestamp: 110 },
+              block: { number: testBlockNumber(11), timestamp: 110 },
               transaction: { hash: '0xbad', from: OWNER },
               params: { sender: POOL, onBehalfOf: OWNER, assets: 100n, shares: 90n },
             },
@@ -145,7 +162,7 @@ describe('borrow handlers', () => {
   // never transaction.from, even when they differ.
   it('Borrow attributes the position to params.to, not transaction.from', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -155,7 +172,7 @@ describe('borrow handlers', () => {
               event: 'Borrow',
               srcAddress: DEBT_X,
               logIndex: 0,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xbrw', from: SOMEONE_ELSE },
               params: { sender: SENDER, to: OWNER, assets: 100n, shares: 90n },
             },
@@ -174,7 +191,7 @@ describe('borrow handlers', () => {
   // same regression for Repay's onBehalfOf param
   it('Repay attributes the position to params.onBehalfOf, not transaction.from', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -184,7 +201,7 @@ describe('borrow handlers', () => {
               event: 'Repay',
               srcAddress: DEBT_X,
               logIndex: 0,
-              block: { number: 11, timestamp: 110 },
+              block: { number: testBlockNumber(11), timestamp: 110 },
               transaction: { hash: '0xrpo', from: SOMEONE_ELSE },
               params: { sender: SENDER, onBehalfOf: OWNER, assets: 100n, shares: 90n },
             },

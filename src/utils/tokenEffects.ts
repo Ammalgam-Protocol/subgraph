@@ -83,8 +83,9 @@ export async function resolveTokenDecimals(
   }
 }
 
-// v8 ignore: parseInput and the createEffect wrappers below run only inside the Envio worker thread.
-/* v8 ignore start */
+// envio's effect dispatch loads this file through its own dynamic import, outside vitest's
+// instrumentation, so istanbul records no calls. factory.test.ts covers it end-to-end.
+/* istanbul ignore start */
 function parseInput(input: string): { chainId: number; address: string } {
   const [chainIdStr, address] = input.split(':')
   return { chainId: Number(chainIdStr), address }
@@ -111,4 +112,4 @@ export const fetchTokenMetadata = createEffect(
     return { symbol, name, decimals }
   },
 )
-/* v8 ignore stop */
+/* istanbul ignore stop */

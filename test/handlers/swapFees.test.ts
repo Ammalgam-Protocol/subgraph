@@ -1,8 +1,8 @@
 import { createTestIndexer, type TestIndexer } from 'envio'
 import { describe, expect, it } from 'vitest'
-
 import { getEventId, scopedId } from '../../src/utils/id'
 import { createDefaultPool } from '../../src/utils/pool'
+import { pairCreatedRegistration, testBlockNumber } from './testBlock'
 
 const CHAIN = 11155111
 const POOL = '0xaa02000000000000000000000000000000000001'
@@ -16,30 +16,26 @@ const POOL_ID = scopedId(CHAIN, POOL)
 const TX_ID = scopedId(CHAIN, TX)
 const TY_ID = scopedId(CHAIN, TY)
 
-function seed(
+// The swap-fee math reads Token.decimals, so registration's default is overridden below.
+async function seed(
   indexer: TestIndexer,
   overrides: { totalAssets?: bigint[]; reserveX?: bigint; reserveY?: bigint },
   decimals: { x: number; y: number } = { x: 18, y: 18 },
 ) {
-  indexer.Token.set({
-    id: TX_ID,
-    symbol: 'TKX',
-    name: 'Token X',
-    decimals: decimals.x,
-    poolCount: 1,
-    txCount: 0,
-    volume: 0n,
-    whitelistPoolIds: [],
+  await indexer.process({
+    chains: {
+      [CHAIN]: {
+        simulate: [pairCreatedRegistration({ pair: POOL, tokenX: TX, tokenY: TY })],
+      },
+    },
   })
   indexer.Token.set({
-    id: TY_ID,
-    symbol: 'TKY',
-    name: 'Token Y',
+    ...(await indexer.Token.getOrThrow(TX_ID)),
+    decimals: decimals.x,
+  })
+  indexer.Token.set({
+    ...(await indexer.Token.getOrThrow(TY_ID)),
     decimals: decimals.y,
-    poolCount: 1,
-    txCount: 0,
-    volume: 0n,
-    whitelistPoolIds: [],
   })
   indexer.Pool.set({
     ...createDefaultPool(POOL_ID, TX_ID, TY_ID, 'TKX-TKY', 1n, 1n),
@@ -60,7 +56,7 @@ async function simulateSwap(
             event: 'Swap',
             srcAddress: POOL,
             logIndex: 0,
-            block: { number: 1, timestamp: 10 },
+            block: { number: testBlockNumber(1), timestamp: 10 },
             transaction: { hash: '0xswap', from: FROM },
             params: { sender: SENDER, to: TO, ...params },
           },
@@ -76,7 +72,7 @@ describe('swap fees as active-liquidity growth and native input retained', () =>
   // independently of splitSwapFee's own binary search.
   it('uses the proof-checked ceiling for a non-depleted X-input swap', async () => {
     const indexer = createTestIndexer()
-    seed(indexer, { reserveX: 1000n, reserveY: 1000n })
+    await seed(indexer, { reserveX: 1000n, reserveY: 1000n })
     const swap = await simulateSwap(indexer, {
       amountXIn: 10n,
       amountYIn: 0n,
@@ -95,7 +91,7 @@ describe('swap fees as active-liquidity growth and native input retained', () =>
   it('bisects the depleted 18-decimal witness and reconciles its following Sync', async () => {
     const scale = 10n ** 18n
     const indexer = createTestIndexer()
-    seed(indexer, {
+    await seed(indexer, {
       reserveX: 1000n * scale,
       reserveY: 1000n * scale,
       totalAssets: [0n, 0n, 0n, 0n, 960n * scale, 0n],
@@ -109,7 +105,7 @@ describe('swap fees as active-liquidity growth and native input retained', () =>
               event: 'Swap',
               srcAddress: POOL,
               logIndex: 0,
-              block: { number: 1, timestamp: 10 },
+              block: { number: testBlockNumber(1), timestamp: 10 },
               transaction: { hash: '0xdepleted', from: FROM },
               params: {
                 sender: SENDER,
@@ -125,7 +121,7 @@ describe('swap fees as active-liquidity growth and native input retained', () =>
               event: 'Sync',
               srcAddress: POOL,
               logIndex: 1,
-              block: { number: 1, timestamp: 10 },
+              block: { number: testBlockNumber(1), timestamp: 10 },
               transaction: { hash: '0xdepleted', from: FROM },
               params: {
                 reserveXAssets: 1010n * scale,
@@ -156,7 +152,7 @@ describe('swap fees as active-liquidity growth and native input retained', () =>
   it('mirrors the depleted witness for Y input', async () => {
     const scale = 10n ** 18n
     const indexer = createTestIndexer()
-    seed(indexer, {
+    await seed(indexer, {
       reserveX: 1000n * scale,
       reserveY: 1000n * scale,
       totalAssets: [0n, 0n, 0n, 0n, 0n, 960n * scale],
@@ -176,7 +172,7 @@ describe('swap fees as active-liquidity growth and native input retained', () =>
   it('records the small fee of a contract-reachable near-exact depleted output', async () => {
     const scale = 10n ** 18n
     const indexer = createTestIndexer()
-    seed(indexer, {
+    await seed(indexer, {
       reserveX: 1000n * scale,
       reserveY: 1000n * scale,
       totalAssets: [0n, 0n, 0n, 0n, 960n * scale, 0n],
@@ -196,7 +192,7 @@ describe('swap fees as active-liquidity growth and native input retained', () =>
   it('records input minus output for a same-token swap', async () => {
     const scale = 10n ** 18n
     const indexer = createTestIndexer()
-    seed(indexer, { reserveX: 1000n * scale, reserveY: 1000n * scale })
+    await seed(indexer, { reserveX: 1000n * scale, reserveY: 1000n * scale })
     const swap = await simulateSwap(indexer, {
       amountXIn: 10n * scale,
       amountYIn: 0n,
@@ -211,7 +207,7 @@ describe('swap fees as active-liquidity growth and native input retained', () =>
 
   it('records a 1-wei native fee even when feeL rounds to zero', async () => {
     const indexer = createTestIndexer()
-    seed(indexer, { reserveX: 1000n, reserveY: 1000n })
+    await seed(indexer, { reserveX: 1000n, reserveY: 1000n })
     const swap = await simulateSwap(indexer, {
       amountXIn: 3n,
       amountYIn: 0n,
@@ -227,7 +223,7 @@ describe('swap fees as active-liquidity growth and native input retained', () =>
   it('handles reserves immediately above the depletion boundary', async () => {
     const scale = 10n ** 18n
     const indexer = createTestIndexer()
-    seed(indexer, {
+    await seed(indexer, {
       reserveX: 1000n * scale + 1n,
       reserveY: 1000n * scale,
       totalAssets: [0n, 0n, 0n, 0n, 950n * scale, 0n],
@@ -246,7 +242,7 @@ describe('swap fees as active-liquidity growth and native input retained', () =>
   it('bisects a reachable swap crossing out of depletion from one wei below the boundary', async () => {
     const scale = 10n ** 18n
     const indexer = createTestIndexer()
-    seed(indexer, {
+    await seed(indexer, {
       reserveX: 1000n * scale - 1n,
       reserveY: 1000n * scale,
       totalAssets: [0n, 0n, 0n, 0n, 950n * scale, 0n],
@@ -265,7 +261,7 @@ describe('swap fees as active-liquidity growth and native input retained', () =>
   it('uses native units for a 6-decimal X and 18-decimal Y pair', async () => {
     const scale = 10n ** 18n
     const indexer = createTestIndexer()
-    seed(indexer, { reserveX: 1000n * 10n ** 6n, reserveY: 1000n * scale }, { x: 6, y: 18 })
+    await seed(indexer, { reserveX: 1000n * 10n ** 6n, reserveY: 1000n * scale }, { x: 6, y: 18 })
     const swap = await simulateSwap(indexer, {
       amountXIn: 10n * 10n ** 6n,
       amountYIn: 0n,
@@ -281,7 +277,7 @@ describe('swap fees as active-liquidity growth and native input retained', () =>
   it('allocates native fees to both inputs along the fee-free ray', async () => {
     const scale = 10n ** 18n
     const indexer = createTestIndexer()
-    seed(indexer, { reserveX: 1000n * scale, reserveY: 1000n * scale })
+    await seed(indexer, { reserveX: 1000n * scale, reserveY: 1000n * scale })
     const amountXIn = 15n * scale
     const amountYIn = 15n * scale
     const swap = await simulateSwap(indexer, {
@@ -307,7 +303,7 @@ describe('swap fees as active-liquidity growth and native input retained', () =>
   it('uses the larger raw input and is symmetric under token relabelling', async () => {
     const scale = 10n ** 18n
     const indexer = createTestIndexer()
-    seed(indexer, { reserveX: 1000n * 10n ** 6n, reserveY: 1000n * scale }, { x: 6, y: 18 })
+    await seed(indexer, { reserveX: 1000n * 10n ** 6n, reserveY: 1000n * scale }, { x: 6, y: 18 })
     const swap = await simulateSwap(indexer, {
       amountXIn: 1n,
       amountYIn: scale,
@@ -316,7 +312,11 @@ describe('swap fees as active-liquidity growth and native input retained', () =>
     })
 
     const mirroredIndexer = createTestIndexer()
-    seed(mirroredIndexer, { reserveX: 1000n * scale, reserveY: 1000n * 10n ** 6n }, { x: 18, y: 6 })
+    await seed(
+      mirroredIndexer,
+      { reserveX: 1000n * scale, reserveY: 1000n * 10n ** 6n },
+      { x: 18, y: 6 },
+    )
     const mirroredSwap = await simulateSwap(mirroredIndexer, {
       amountXIn: scale,
       amountYIn: 1n,
@@ -334,7 +334,7 @@ describe('swap fees as active-liquidity growth and native input retained', () =>
 
   it('records zero native fees for an invalid-state fallback', async () => {
     const indexer = createTestIndexer()
-    seed(indexer, { reserveX: 1000n, reserveY: 1000n })
+    await seed(indexer, { reserveX: 1000n, reserveY: 1000n })
     const swap = await simulateSwap(indexer, {
       amountXIn: 1n,
       amountYIn: 0n,

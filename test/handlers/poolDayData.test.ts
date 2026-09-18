@@ -1,8 +1,8 @@
 import { createTestIndexer } from 'envio'
 import { describe, expect, it } from 'vitest'
-
 import { getEventId, scopedId } from '../../src/utils/id'
 import { createDefaultPool } from '../../src/utils/pool'
+import { pairCreatedRegistration, testBlockNumber } from './testBlock'
 
 const CHAIN = 11155111
 const POOL = '0xaa01000000000000000000000000000000000001'
@@ -16,26 +16,13 @@ const POOL_ID = scopedId(CHAIN, POOL)
 const TX_ID = scopedId(CHAIN, TX)
 const TY_ID = scopedId(CHAIN, TY)
 
-function seed(indexer: ReturnType<typeof createTestIndexer>) {
-  indexer.Token.set({
-    id: TX_ID,
-    symbol: 'TKX',
-    name: 'Token X',
-    decimals: 18,
-    poolCount: 1,
-    txCount: 0,
-    volume: 0n,
-    whitelistPoolIds: [],
-  })
-  indexer.Token.set({
-    id: TY_ID,
-    symbol: 'TKY',
-    name: 'Token Y',
-    decimals: 18,
-    poolCount: 1,
-    txCount: 0,
-    volume: 0n,
-    whitelistPoolIds: [],
+async function seed(indexer: ReturnType<typeof createTestIndexer>) {
+  await indexer.process({
+    chains: {
+      11155111: {
+        simulate: [pairCreatedRegistration({ pair: POOL, tokenX: TX, tokenY: TY })],
+      },
+    },
   })
   indexer.Pool.set({
     ...createDefaultPool(POOL_ID, TX_ID, TY_ID, 'TKX-TKY', 1n, 1n),
@@ -47,7 +34,7 @@ function seed(indexer: ReturnType<typeof createTestIndexer>) {
 describe('PoolDayData: one write path for yield', () => {
   it('creates the day row on first touch with every fee column at ZERO_BI', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -57,7 +44,7 @@ describe('PoolDayData: one write path for yield', () => {
               event: 'Swap',
               srcAddress: POOL,
               logIndex: 0,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xswap1', from: FROM },
               params: {
                 sender: SENDER,
@@ -84,7 +71,7 @@ describe('PoolDayData: one write path for yield', () => {
 
   it('applies one delta object to both Pool and the day row', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -94,7 +81,7 @@ describe('PoolDayData: one write path for yield', () => {
               event: 'Swap',
               srcAddress: POOL,
               logIndex: 0,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xswap1', from: FROM },
               params: {
                 sender: SENDER,
@@ -122,7 +109,7 @@ describe('PoolDayData: one write path for yield', () => {
 
   it('reconciles fee-bearing swaps across UTC days with events and Pool', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -132,7 +119,7 @@ describe('PoolDayData: one write path for yield', () => {
               event: 'Swap',
               srcAddress: POOL,
               logIndex: 0,
-              block: { number: 10, timestamp: 86399 },
+              block: { number: testBlockNumber(10), timestamp: 86399 },
               transaction: { hash: '0xswapa', from: FROM },
               params: {
                 sender: SENDER,
@@ -148,7 +135,7 @@ describe('PoolDayData: one write path for yield', () => {
               event: 'Sync',
               srcAddress: POOL,
               logIndex: 1,
-              block: { number: 10, timestamp: 86399 },
+              block: { number: testBlockNumber(10), timestamp: 86399 },
               transaction: { hash: '0xswapa', from: FROM },
               params: { reserveXAssets: 1010n, reserveYAssets: 994n },
             },
@@ -157,7 +144,7 @@ describe('PoolDayData: one write path for yield', () => {
               event: 'Swap',
               srcAddress: POOL,
               logIndex: 0,
-              block: { number: 11, timestamp: 86400 + 10 },
+              block: { number: testBlockNumber(11), timestamp: 86400 + 10 },
               transaction: { hash: '0xswapb', from: FROM },
               params: {
                 sender: SENDER,
@@ -173,7 +160,7 @@ describe('PoolDayData: one write path for yield', () => {
               event: 'Sync',
               srcAddress: POOL,
               logIndex: 1,
-              block: { number: 11, timestamp: 86400 + 10 },
+              block: { number: testBlockNumber(11), timestamp: 86400 + 10 },
               transaction: { hash: '0xswapb', from: FROM },
               params: { reserveXAssets: 1020n, reserveYAssets: 989n },
             },

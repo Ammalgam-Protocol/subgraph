@@ -16,6 +16,7 @@ paths:
 - RPC env vars must be `ENVIO_`-prefixed — only those are exposed at runtime:
   `ENVIO_RPC_URL_<chainId>`, `ENVIO_RPC_RETRY_COUNT`. Keep `VIEM_CHAINS` in sync with `chains.ts`
 - Token `decimals >= 255` is treated as a failed read and coerced to `0`.
-- `getClient` (`rpcClient.ts`) / the effect wrappers run in the Envio worker thread, invisible to v8
-  coverage: they carry `/* v8 ignore */` and are exercised end-to-end by
+- `getClient` (`rpcClient.ts`) and the effect wrappers are only ever invoked through envio's own
+  dynamic import of handler files, which bypasses vitest's instrumentation entirely (no
+  `worker_threads` involved). They carry `/* istanbul ignore */` and are exercised end-to-end by
   `test/handlers/factory.test.ts` (token metadata).

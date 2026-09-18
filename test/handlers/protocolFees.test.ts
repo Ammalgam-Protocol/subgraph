@@ -1,9 +1,13 @@
 import { createTestIndexer } from 'envio'
 import { describe, expect, it } from 'vitest'
-
-import { ADDRESS_ZERO, BORROW_L } from '../../src/utils/constants'
+import { ADDRESS_ZERO } from '../../src/utils/constants'
 import { getPositionId, scopedId } from '../../src/utils/id'
 import { createDefaultPool } from '../../src/utils/pool'
+import {
+  lendingTokensCreatedRegistration,
+  pairCreatedRegistration,
+  testBlockNumber,
+} from './testBlock'
 
 const CHAIN = 11155111
 const POOL = '0xaa01000000000000000000000000000000000001'
@@ -13,64 +17,60 @@ const LEND_L = '0x00000000000000000000000000000000000000d0'
 const LEND_BL = '0x00000000000000000000000000000000000000d3'
 const FEE_TO = '0xfee0000000000000000000000000000000000001'
 const ALICE = '0xc0de000000000000000000000000000000000001'
+const UNUSED_LEND_1 = '0x00000000000000000000000000000000000000e1'
+const UNUSED_TX = '0x00000000000000000000000000000000000000e2'
+const UNUSED_TY = '0x00000000000000000000000000000000000000e3'
 
 const POOL_ID = scopedId(CHAIN, POOL)
-const LEND_X_ID = scopedId(CHAIN, LEND_X)
-const LEND_Y_ID = scopedId(CHAIN, LEND_Y)
-const LEND_L_ID = scopedId(CHAIN, LEND_L)
-const LEND_BL_ID = scopedId(CHAIN, LEND_BL)
 
-function seed(indexer: ReturnType<typeof createTestIndexer>) {
-  indexer.LendingToken.set({
-    id: LEND_X_ID,
-    symbol: 'aTKX',
-    name: 'Ammalgam TKX',
-    decimals: 18,
-    pool_id: POOL_ID,
-    tokenType: 1, // DEPOSIT_X
-    pendingAssets: undefined,
-    pendingShares: undefined,
-  })
-  indexer.LendingToken.set({
-    id: LEND_Y_ID,
-    symbol: 'aTKY',
-    name: 'Ammalgam TKY',
-    decimals: 18,
-    pool_id: POOL_ID,
-    tokenType: 2, // DEPOSIT_Y
-    pendingAssets: undefined,
-    pendingShares: undefined,
-  })
-  indexer.LendingToken.set({
-    id: LEND_L_ID,
-    symbol: 'AMG',
-    name: 'Ammalgam Liquidity',
-    decimals: 18,
-    pool_id: POOL_ID,
-    tokenType: 0, // DEPOSIT_L
-    pendingAssets: undefined,
-    pendingShares: undefined,
+async function seed(indexer: ReturnType<typeof createTestIndexer>) {
+  await indexer.process({
+    chains: {
+      11155111: {
+        simulate: [
+          lendingTokensCreatedRegistration({
+            pair: POOL,
+            depositL: LEND_L,
+            depositX: LEND_X,
+            depositY: LEND_Y,
+            borrowL: UNUSED_LEND_1,
+            borrowX: UNUSED_LEND_1,
+            borrowY: UNUSED_LEND_1,
+          }),
+          pairCreatedRegistration({ pair: POOL, tokenX: UNUSED_TX, tokenY: UNUSED_TY }),
+        ],
+      },
+    },
   })
   indexer.Pool.set(createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n))
 }
 
-function seedBorrowLiquidityToken(indexer: ReturnType<typeof createTestIndexer>) {
-  indexer.LendingToken.set({
-    id: LEND_BL_ID,
-    symbol: 'dLP',
-    name: 'Debt LP',
-    decimals: 18,
-    pool_id: POOL_ID,
-    tokenType: BORROW_L,
-    pendingAssets: undefined,
-    pendingShares: undefined,
+// blockOffset 1: seed()/seedAccrualPool() already used offset 0 on this indexer.
+async function seedBorrowLiquidityToken(indexer: ReturnType<typeof createTestIndexer>) {
+  await indexer.process({
+    chains: {
+      11155111: {
+        simulate: [
+          lendingTokensCreatedRegistration({
+            pair: POOL,
+            depositL: UNUSED_LEND_1,
+            depositX: UNUSED_LEND_1,
+            depositY: UNUSED_LEND_1,
+            borrowL: LEND_BL,
+            borrowX: UNUSED_LEND_1,
+            borrowY: UNUSED_LEND_1,
+            blockOffset: 1,
+          }),
+        ],
+      },
+    },
   })
 }
 
 describe('protocol fee aggregation', () => {
   it('accumulates pair-sender Deposit mints into protocolFeesTokenX', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -80,7 +80,7 @@ describe('protocol fee aggregation', () => {
               event: 'Deposit',
               srcAddress: LEND_X,
               logIndex: 0,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xpf1', from: ALICE },
               params: { sender: POOL, owner: FEE_TO, assets: 1500000000000000000n, shares: 1n },
             },
@@ -99,7 +99,7 @@ describe('protocol fee aggregation', () => {
 
   it('routes DEPOSIT_Y fee mints into protocolFeesTokenY', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -109,7 +109,7 @@ describe('protocol fee aggregation', () => {
               event: 'Deposit',
               srcAddress: LEND_Y,
               logIndex: 0,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xpf4', from: ALICE },
               params: { sender: POOL, owner: FEE_TO, assets: 2500000000000000000n, shares: 1n },
             },
@@ -127,7 +127,7 @@ describe('protocol fee aggregation', () => {
 
   it('routes Mint (liquidity) fee mints into protocolFeesTokenL', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -137,7 +137,7 @@ describe('protocol fee aggregation', () => {
               event: 'Mint',
               srcAddress: LEND_L,
               logIndex: 0,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xpf2', from: ALICE },
               params: { sender: POOL, to: FEE_TO, assets: 3000000000000000000n, shares: 1n },
             },
@@ -152,7 +152,7 @@ describe('protocol fee aggregation', () => {
 
   it('twins the DEPOSIT_L fee mint into protocolFeesTokenLAsX/LAsY at the re-derived active liquidity', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     indexer.Pool.set({
       ...createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n),
       reserveX: 1000n,
@@ -169,7 +169,7 @@ describe('protocol fee aggregation', () => {
               event: 'Mint',
               srcAddress: LEND_L,
               logIndex: 0,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xpf5', from: ALICE },
               params: { sender: POOL, to: FEE_TO, assets: 10n, shares: 10n },
             },
@@ -187,7 +187,7 @@ describe('protocol fee aggregation', () => {
 
   it('keeps a Position for feeTo without counting the fee mint as a deposit', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -197,7 +197,7 @@ describe('protocol fee aggregation', () => {
               event: 'Deposit',
               srcAddress: LEND_X,
               logIndex: 0,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xpf4', from: ALICE },
               params: { sender: POOL, owner: FEE_TO, assets: 2000000000000000000n, shares: 1n },
             },
@@ -221,7 +221,7 @@ describe('protocol fee aggregation', () => {
 
   it('leaves cumulative fees untouched for user deposits', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -231,7 +231,7 @@ describe('protocol fee aggregation', () => {
               event: 'Deposit',
               srcAddress: LEND_X,
               logIndex: 0,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xpf3', from: ALICE },
               params: { sender: ALICE, owner: ALICE, assets: 1500000000000000000n, shares: 1n },
             },
@@ -246,8 +246,8 @@ describe('protocol fee aggregation', () => {
   })
 })
 
-function seedAccrualPool(indexer: ReturnType<typeof createTestIndexer>) {
-  seed(indexer)
+async function seedAccrualPool(indexer: ReturnType<typeof createTestIndexer>) {
+  await seed(indexer)
   indexer.Token.set({
     id: 'tx',
     symbol: 'TKX',
@@ -281,8 +281,8 @@ function seedAccrualPool(indexer: ReturnType<typeof createTestIndexer>) {
 describe('D11: pair-sender L fee mint backs out of deposit L', () => {
   it('lands deposit L at the pre-mint value once the mint Transfer lands', async () => {
     const indexer = createTestIndexer()
-    seedAccrualPool(indexer)
-    const block = { number: 20, timestamp: 200 }
+    await seedAccrualPool(indexer)
+    const block = { number: testBlockNumber(20), timestamp: 200 }
 
     await indexer.process({
       chains: {
@@ -389,9 +389,9 @@ describe('D11: pair-sender L fee mint backs out of deposit L', () => {
 
   it('keeps an initial lending fee on borrow L in the recipient position through the closing Sync', async () => {
     const indexer = createTestIndexer()
-    seedAccrualPool(indexer)
-    seedBorrowLiquidityToken(indexer)
-    const block = { number: 30, timestamp: 300 }
+    await seedAccrualPool(indexer)
+    await seedBorrowLiquidityToken(indexer)
+    const block = { number: testBlockNumber(30), timestamp: 300 }
     indexer.Pool.set({
       ...createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n),
       reserveX: 1000000n,
@@ -471,9 +471,9 @@ describe('D11: pair-sender L fee mint backs out of deposit L', () => {
 
   it('backs out only protocol interest when it shares a transaction with an initial lending fee', async () => {
     const indexer = createTestIndexer()
-    seedAccrualPool(indexer)
-    seedBorrowLiquidityToken(indexer)
-    const block = { number: 31, timestamp: 301 }
+    await seedAccrualPool(indexer)
+    await seedBorrowLiquidityToken(indexer)
+    const block = { number: testBlockNumber(31), timestamp: 301 }
     indexer.Pool.set({
       ...createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n),
       reserveX: 1000000n,
@@ -599,8 +599,8 @@ describe('D11: pair-sender L fee mint backs out of deposit L', () => {
 
   it('does not treat a next-transaction initial lending fee as pending protocol interest', async () => {
     const indexer = createTestIndexer()
-    seedAccrualPool(indexer)
-    seedBorrowLiquidityToken(indexer)
+    await seedAccrualPool(indexer)
+    await seedBorrowLiquidityToken(indexer)
     indexer.Pool.set({
       ...createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n),
       reserveX: 1000000n,
@@ -618,7 +618,7 @@ describe('D11: pair-sender L fee mint backs out of deposit L', () => {
               event: 'InterestAccrued',
               srcAddress: POOL,
               logIndex: 0,
-              block: { number: 32, timestamp: 302 },
+              block: { number: testBlockNumber(32), timestamp: 302 },
               transaction: { hash: '0xstaged-interest', from: ALICE },
               params: {
                 reserveXAssets: 1000000n,
@@ -635,7 +635,7 @@ describe('D11: pair-sender L fee mint backs out of deposit L', () => {
               event: 'Mint',
               srcAddress: LEND_L,
               logIndex: 0,
-              block: { number: 33, timestamp: 303 },
+              block: { number: testBlockNumber(33), timestamp: 303 },
               transaction: { hash: '0xlater-initial', from: ALICE },
               params: { sender: POOL, to: FEE_TO, assets: 1n, shares: 1n },
             },
@@ -644,7 +644,7 @@ describe('D11: pair-sender L fee mint backs out of deposit L', () => {
               event: 'Transfer',
               srcAddress: LEND_L,
               logIndex: 1,
-              block: { number: 33, timestamp: 303 },
+              block: { number: testBlockNumber(33), timestamp: 303 },
               transaction: { hash: '0xlater-initial', from: ALICE },
               params: { from: ADDRESS_ZERO, to: FEE_TO, value: 1n },
             },
@@ -662,8 +662,8 @@ describe('D11: pair-sender L fee mint backs out of deposit L', () => {
 describe('D2: protocol fee mint twins pair with InterestAccrued protocol interest', () => {
   it('protocolInterestToken* stays <= protocolFeesToken* once the accrued L fee is minted to the pair', async () => {
     const indexer = createTestIndexer()
-    seedAccrualPool(indexer)
-    const block = { number: 20, timestamp: 200 }
+    await seedAccrualPool(indexer)
+    const block = { number: testBlockNumber(20), timestamp: 200 }
 
     await indexer.process({
       chains: {
@@ -734,7 +734,7 @@ describe('D2: protocol fee mint twins pair with InterestAccrued protocol interes
 
   it('reconciles X, Y, and L protocol mints in contract order', async () => {
     const indexer = createTestIndexer()
-    seedAccrualPool(indexer)
+    await seedAccrualPool(indexer)
     indexer.Pool.set({
       ...createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n),
       reserveX: 50n,
@@ -742,7 +742,7 @@ describe('D2: protocol fee mint twins pair with InterestAccrued protocol interes
       totalAssets: [100n, 100n, 1000n, 0n, 100n, 200n],
       totalShares: [100n, 100n, 1000n, 0n, 100n, 200n],
     })
-    const block = { number: 21, timestamp: 201 }
+    const block = { number: testBlockNumber(21), timestamp: 201 }
 
     await indexer.process({
       chains: {

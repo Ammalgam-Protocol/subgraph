@@ -1,30 +1,41 @@
 import { createTestIndexer } from 'envio'
 import { describe, expect, it } from 'vitest'
-
 import { getEventId, getPositionId, scopedId } from '../../src/utils/id'
 import { createDefaultPool } from '../../src/utils/pool'
+import { lendingTokensCreatedRegistration, testBlockNumber } from './testBlock'
 
 const CHAIN = 11155111
 const POOL = '0xaa01000000000000000000000000000000000001'
 const LEND_L = '0x00000000000000000000000000000000000000d0' // DEPOSIT_L lending token
 const TO = '0xc0de000000000000000000000000000000000001'
 const SENDER = '0x5e4d000000000000000000000000000000000001'
+const UNUSED_LEND_1 = '0x00000000000000000000000000000000000000e1'
+const UNUSED_LEND_2 = '0x00000000000000000000000000000000000000e2'
+const UNUSED_LEND_3 = '0x00000000000000000000000000000000000000e3'
+const UNUSED_LEND_4 = '0x00000000000000000000000000000000000000e4'
+const UNUSED_LEND_5 = '0x00000000000000000000000000000000000000e5'
 
 const POOL_ID = scopedId(CHAIN, POOL)
-const LEND_L_ID = scopedId(CHAIN, LEND_L)
 const TO_ID = scopedId(CHAIN, TO)
 const POSITION_ID = getPositionId(TO_ID, POOL_ID)
 
-function seed(indexer: ReturnType<typeof createTestIndexer>) {
-  indexer.LendingToken.set({
-    id: LEND_L_ID,
-    symbol: 'aLP',
-    name: 'Ammalgam LP',
-    decimals: 18,
-    pool_id: POOL_ID,
-    tokenType: 0, // DEPOSIT_L
-    pendingAssets: undefined,
-    pendingShares: undefined,
+async function seed(indexer: ReturnType<typeof createTestIndexer>) {
+  await indexer.process({
+    chains: {
+      11155111: {
+        simulate: [
+          lendingTokensCreatedRegistration({
+            pair: POOL,
+            depositL: LEND_L,
+            depositX: UNUSED_LEND_1,
+            depositY: UNUSED_LEND_2,
+            borrowL: UNUSED_LEND_3,
+            borrowX: UNUSED_LEND_4,
+            borrowY: UNUSED_LEND_5,
+          }),
+        ],
+      },
+    },
   })
   indexer.Pool.set({ ...createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n) })
 }
@@ -32,7 +43,7 @@ function seed(indexer: ReturnType<typeof createTestIndexer>) {
 describe('depositLiquidity handlers', () => {
   it('Mint bumps counters and writes the entity; totals untouched', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -42,7 +53,7 @@ describe('depositLiquidity handlers', () => {
               event: 'Mint',
               srcAddress: LEND_L,
               logIndex: 0,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xmint', from: TO },
               params: { sender: SENDER, to: TO, assets: 300n, shares: 290n },
             },
@@ -65,7 +76,7 @@ describe('depositLiquidity handlers', () => {
 
   it('Burn attributes to the raw `to` (no rewrite) and bumps counters', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     indexer.Position.set({
       id: POSITION_ID,
       user_id: TO_ID,
@@ -92,7 +103,7 @@ describe('depositLiquidity handlers', () => {
               event: 'Burn',
               srcAddress: LEND_L,
               logIndex: 0,
-              block: { number: 11, timestamp: 110 },
+              block: { number: testBlockNumber(11), timestamp: 110 },
               transaction: { hash: '0xburn', from: TO },
               params: { sender: SENDER, to: TO, assets: 200n, shares: 190n },
             },
@@ -113,7 +124,7 @@ describe('depositLiquidity handlers', () => {
 
   it('Burn to the pair is a bad debt writeoff and skips the counters', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -123,7 +134,7 @@ describe('depositLiquidity handlers', () => {
               event: 'Burn',
               srcAddress: LEND_L,
               logIndex: 0,
-              block: { number: 13, timestamp: 130 },
+              block: { number: testBlockNumber(13), timestamp: 130 },
               transaction: { hash: '0xbdl', from: SENDER },
               // ERC20LiquidityToken.ownerBurn passes the sender through, so the liquidator
               // stays in `sender` and only `to` identifies the writeoff.

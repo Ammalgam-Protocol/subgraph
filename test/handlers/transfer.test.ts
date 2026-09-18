@@ -1,28 +1,49 @@
 import { createTestIndexer } from 'envio'
 import { describe, expect, it } from 'vitest'
-
 import { getEventId, getPositionId, scopedId } from '../../src/utils/id'
 import { createDefaultPool } from '../../src/utils/pool'
+import { lendingTokensCreatedRegistration, testBlockNumber } from './testBlock'
 
 const CHAIN = 11155111
 const POOL: `0x${string}` = '0xaa01000000000000000000000000000000000001'
 const LEND_X: `0x${string}` = '0x00000000000000000000000000000000000000d1'
+const LEND_Y: `0x${string}` = '0x00000000000000000000000000000000000000d2'
 const LEND_BL: `0x${string}` = '0x00000000000000000000000000000000000000d3'
 const LEND_BX: `0x${string}` = '0x00000000000000000000000000000000000000d4'
+const LEND_BY: `0x${string}` = '0x00000000000000000000000000000000000000d5'
 const LEND_DL: `0x${string}` = '0x00000000000000000000000000000000000000d0'
 const ALICE: `0x${string}` = '0xc0de000000000000000000000000000000000001'
 const BOB: `0x${string}` = '0xc0de000000000000000000000000000000000002'
 const ZERO: `0x${string}` = '0x0000000000000000000000000000000000000000'
 
+async function registerLendingTokens(indexer: ReturnType<typeof createTestIndexer>) {
+  await indexer.process({
+    chains: {
+      11155111: {
+        simulate: [
+          lendingTokensCreatedRegistration({
+            pair: POOL,
+            depositL: LEND_DL,
+            depositX: LEND_X,
+            depositY: LEND_Y,
+            borrowL: LEND_BL,
+            borrowX: LEND_BX,
+            borrowY: LEND_BY,
+          }),
+        ],
+      },
+    },
+  })
+}
+
 const POOL_ID = scopedId(CHAIN, POOL)
 const LEND_X_ID = scopedId(CHAIN, LEND_X)
-const LEND_BL_ID = scopedId(CHAIN, LEND_BL)
 const LEND_BX_ID = scopedId(CHAIN, LEND_BX)
 const LEND_DL_ID = scopedId(CHAIN, LEND_DL)
 const ALICE_ID = scopedId(CHAIN, ALICE)
 const BOB_ID = scopedId(CHAIN, BOB)
 
-function seed(
+async function seed(
   indexer: ReturnType<typeof createTestIndexer>,
   overrides?: Partial<{
     totalAssets: bigint[]
@@ -31,16 +52,7 @@ function seed(
     reserveY: bigint
   }>,
 ) {
-  indexer.LendingToken.set({
-    id: LEND_X_ID,
-    symbol: 'aTKX',
-    name: 'Ammalgam TKX',
-    decimals: 18,
-    pool_id: POOL_ID,
-    tokenType: 1,
-    pendingAssets: undefined,
-    pendingShares: undefined,
-  })
+  await registerLendingTokens(indexer)
   const pool = createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n)
   indexer.Pool.set({
     ...pool,
@@ -57,7 +69,7 @@ function transfer(from: `0x${string}`, to: `0x${string}`, value: bigint, logInde
     event: 'Transfer' as const,
     srcAddress: LEND_X,
     logIndex,
-    block: { number: 10, timestamp: 100 },
+    block: { number: testBlockNumber(10), timestamp: 100 },
     transaction: { hash: '0xt', from: ALICE },
     params: { from, to, value },
   }
@@ -75,7 +87,7 @@ function depositAction(
     event: 'Deposit' as const,
     srcAddress: LEND_X,
     logIndex,
-    block: { number: 10, timestamp: 100 },
+    block: { number: testBlockNumber(10), timestamp: 100 },
     transaction: { hash: '0xdep', from: owner },
     params: { sender, owner, assets, shares },
   }
@@ -85,7 +97,7 @@ describe('lending-token Transfer accounting', () => {
   it('mint (0x0 -> user) credits shares/assets/principal and pool totals; no entity', async () => {
     const indexer = createTestIndexer()
     // rate 2:1 -> assetsImplied for 100 shares = 200
-    seed(indexer, {
+    await seed(indexer, {
       totalAssets: [0n, 200n, 0n, 0n, 0n, 0n],
       totalShares: [0n, 100n, 0n, 0n, 0n, 0n],
     })
@@ -102,7 +114,7 @@ describe('lending-token Transfer accounting', () => {
 
   it('burn (user -> 0x0) debits both sides symmetrically', async () => {
     const indexer = createTestIndexer()
-    seed(indexer, {
+    await seed(indexer, {
       totalAssets: [0n, 200n, 0n, 0n, 0n, 0n],
       totalShares: [0n, 100n, 0n, 0n, 0n, 0n],
     })
@@ -134,7 +146,7 @@ describe('lending-token Transfer accounting', () => {
 
   it('wallet-to-wallet move credits receiver even with no prior sender position', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({ chains: { 11155111: { simulate: [transfer(ALICE, BOB, 30n)] } } })
     const sender = await indexer.Position.getOrThrow(getPositionId(ALICE_ID, POOL_ID))
     const receiver = await indexer.Position.getOrThrow(getPositionId(BOB_ID, POOL_ID))
@@ -150,7 +162,7 @@ describe('lending-token Transfer accounting', () => {
 
   it('pool-side move (owner -> pair) accounts but writes no Transfer entity/counters', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({ chains: { 11155111: { simulate: [transfer(ALICE, POOL, 25n)] } } })
     expect(await indexer.Transfer.getAll()).toHaveLength(0)
     const pool = await indexer.Pool.getOrThrow(POOL_ID)
@@ -161,15 +173,10 @@ describe('lending-token Transfer accounting', () => {
 
   it('value == 0 is a no-op without matching pendingShares', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     // pendingShares 1 does not match the incoming 0, so both Transfers must fall through.
     indexer.LendingToken.set({
-      id: LEND_X_ID,
-      symbol: 'aTKX',
-      name: 'Ammalgam TKX',
-      decimals: 18,
-      pool_id: POOL_ID,
-      tokenType: 1,
+      ...(await indexer.LendingToken.getOrThrow(LEND_X_ID)),
       pendingAssets: 1n,
       pendingShares: 1n,
     })
@@ -192,7 +199,7 @@ describe('lending-token Transfer accounting', () => {
 
   it('withdraw hop then burn nets the pair to zero at identical rate', async () => {
     const indexer = createTestIndexer()
-    seed(indexer, {
+    await seed(indexer, {
       totalAssets: [0n, 300n, 0n, 0n, 0n, 0n],
       totalShares: [0n, 100n, 0n, 0n, 0n, 0n],
     })
@@ -234,7 +241,7 @@ describe('lending-token Transfer accounting', () => {
     const indexer = createTestIndexer()
     // rate 2 assets/share pre-existing -> floor(2 shares, TA=2, TS=1) = 4, but the Deposit event
     // carried the exact assets=5 (a legitimate deposit at a slightly different effective rate).
-    seed(indexer, {
+    await seed(indexer, {
       totalAssets: [0n, 2n, 0n, 0n, 0n, 0n],
       totalShares: [0n, 1n, 0n, 0n, 0n, 0n],
     })
@@ -255,7 +262,7 @@ describe('lending-token Transfer accounting', () => {
   it('zero-share Deposit and Repay Transfers consume pendingAssets', async () => {
     // reserves 100/100, depositY 1000: depositL 89 before the 1-asset action, 100 after.
     const depositIndexer = createTestIndexer()
-    seed(depositIndexer, {
+    await seed(depositIndexer, {
       reserveX: 100n,
       reserveY: 100n,
       totalAssets: [89n, 1001n, 1000n, 0n, 1097n, 0n],
@@ -276,21 +283,11 @@ describe('lending-token Transfer accounting', () => {
     expect(depositToken.pendingShares).toBeUndefined()
 
     const repayIndexer = createTestIndexer()
-    seed(repayIndexer, {
+    await seed(repayIndexer, {
       reserveX: 100n,
       reserveY: 100n,
       totalAssets: [89n, 1001n, 1000n, 0n, 1097n, 0n],
       totalShares: [0n, 1000n, 1000n, 0n, 1000n, 0n],
-    })
-    repayIndexer.LendingToken.set({
-      id: LEND_BX_ID,
-      symbol: 'dTKX',
-      name: 'Debt TKX',
-      decimals: 18,
-      pool_id: POOL_ID,
-      tokenType: 4,
-      pendingAssets: undefined,
-      pendingShares: undefined,
     })
     await repayIndexer.process({
       chains: {
@@ -301,7 +298,7 @@ describe('lending-token Transfer accounting', () => {
               event: 'Repay',
               srcAddress: LEND_BX,
               logIndex: 0,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xrep', from: ALICE },
               params: { sender: ALICE, onBehalfOf: ALICE, assets: 1n, shares: 0n },
             },
@@ -310,7 +307,7 @@ describe('lending-token Transfer accounting', () => {
               event: 'Transfer',
               srcAddress: LEND_BX,
               logIndex: 1,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xrep', from: ALICE },
               params: { from: ALICE, to: ZERO, value: 0n },
             },
@@ -328,7 +325,7 @@ describe('lending-token Transfer accounting', () => {
 
   it('a mint Transfer with no matching stash falls back to the floor reconstruction', async () => {
     const indexer = createTestIndexer()
-    seed(indexer, {
+    await seed(indexer, {
       totalAssets: [0n, 2n, 0n, 0n, 0n, 0n],
       totalShares: [0n, 1n, 0n, 0n, 0n, 0n],
     })
@@ -340,7 +337,7 @@ describe('lending-token Transfer accounting', () => {
 
   it('the stash is cleared after one consumption; a later Transfer at the same value cannot reuse it', async () => {
     const indexer = createTestIndexer()
-    seed(indexer, {
+    await seed(indexer, {
       totalAssets: [0n, 2n, 0n, 0n, 0n, 0n],
       totalShares: [0n, 1n, 0n, 0n, 0n, 0n],
     })
@@ -363,16 +360,7 @@ describe('lending-token Transfer accounting', () => {
 
   it('a BORROW_L mint Transfer re-derives DEPOSIT_L, not just BORROW_L (D10)', async () => {
     const indexer = createTestIndexer()
-    indexer.LendingToken.set({
-      id: LEND_BL_ID,
-      symbol: 'dLP',
-      name: 'Debt LP',
-      decimals: 18,
-      pool_id: POOL_ID,
-      tokenType: 3, // BORROW_L
-      pendingAssets: undefined,
-      pendingShares: undefined,
-    })
+    await registerLendingTokens(indexer)
     const pool = createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n)
     indexer.Pool.set({
       ...pool,
@@ -391,7 +379,7 @@ describe('lending-token Transfer accounting', () => {
               event: 'Transfer',
               srcAddress: LEND_BL,
               logIndex: 0,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xbl', from: ALICE },
               params: { from: ZERO, to: ALICE, value: 50n },
             },
@@ -407,16 +395,7 @@ describe('lending-token Transfer accounting', () => {
 
   it('a BORROW_X mint Transfer re-derives DEPOSIT_L through the depletion formula (D10)', async () => {
     const indexer = createTestIndexer()
-    indexer.LendingToken.set({
-      id: LEND_BX_ID,
-      symbol: 'dTKX',
-      name: 'Debt TKX',
-      decimals: 18,
-      pool_id: POOL_ID,
-      tokenType: 4, // BORROW_X
-      pendingAssets: undefined,
-      pendingShares: undefined,
-    })
+    await registerLendingTokens(indexer)
     const pool = createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n)
     indexer.Pool.set({
       ...pool,
@@ -434,7 +413,7 @@ describe('lending-token Transfer accounting', () => {
               event: 'Transfer',
               srcAddress: LEND_BX,
               logIndex: 0,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xbx', from: ALICE },
               params: { from: ZERO, to: ALICE, value: 100n },
             },
@@ -451,13 +430,10 @@ describe('lending-token Transfer accounting', () => {
 
   it('a DEPOSIT_L mint Transfer lands its own exact assets and does not re-derive (D10 carve-out)', async () => {
     const indexer = createTestIndexer()
+    await registerLendingTokens(indexer)
+    // Override the stash registration leaves unset: proves a mint consumes it, not the formula.
     indexer.LendingToken.set({
-      id: LEND_DL_ID,
-      symbol: 'aLP',
-      name: 'Ammalgam LP',
-      decimals: 18,
-      pool_id: POOL_ID,
-      tokenType: 0, // DEPOSIT_L
+      ...(await indexer.LendingToken.getOrThrow(LEND_DL_ID)),
       pendingAssets: 777n,
       pendingShares: 50n,
     })
@@ -480,7 +456,7 @@ describe('lending-token Transfer accounting', () => {
               event: 'Transfer',
               srcAddress: LEND_DL,
               logIndex: 0,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xdl', from: ALICE },
               params: { from: ZERO, to: ALICE, value: 50n },
             },

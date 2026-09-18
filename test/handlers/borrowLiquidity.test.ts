@@ -1,31 +1,46 @@
 import { createTestIndexer } from 'envio'
 import { describe, expect, it } from 'vitest'
-
 import { getEventId, getPositionId, scopedId } from '../../src/utils/id'
 import { createDefaultPool } from '../../src/utils/pool'
+import { lendingTokensCreatedRegistration, testBlockNumber } from './testBlock'
 
 const CHAIN = 11155111
 const POOL = '0xaa01000000000000000000000000000000000001'
 const DEBT_L = '0x00000000000000000000000000000000000000b0' // BORROW_L lending token
 const TO = '0xc0de000000000000000000000000000000000001'
 const SENDER = '0x5e4d000000000000000000000000000000000001'
+const UNUSED_LEND_1 = '0x00000000000000000000000000000000000000e1'
+const UNUSED_LEND_2 = '0x00000000000000000000000000000000000000e2'
+const UNUSED_LEND_3 = '0x00000000000000000000000000000000000000e3'
+const UNUSED_LEND_4 = '0x00000000000000000000000000000000000000e4'
+const UNUSED_LEND_5 = '0x00000000000000000000000000000000000000e5'
 
 const POOL_ID = scopedId(CHAIN, POOL)
-const DEBT_L_ID = scopedId(CHAIN, DEBT_L)
 const TO_ID = scopedId(CHAIN, TO)
 const POSITION_ID = getPositionId(TO_ID, POOL_ID)
 
-function seed(indexer: ReturnType<typeof createTestIndexer>) {
-  indexer.LendingToken.set({
-    id: DEBT_L_ID,
-    symbol: 'dLP',
-    name: 'Debt LP',
-    decimals: 18,
-    pool_id: POOL_ID,
-    tokenType: 3, // BORROW_L
-    pendingAssets: undefined,
-    pendingShares: undefined,
+async function registerDebtL(indexer: ReturnType<typeof createTestIndexer>) {
+  await indexer.process({
+    chains: {
+      11155111: {
+        simulate: [
+          lendingTokensCreatedRegistration({
+            pair: POOL,
+            depositL: UNUSED_LEND_1,
+            depositX: UNUSED_LEND_2,
+            depositY: UNUSED_LEND_3,
+            borrowL: DEBT_L,
+            borrowX: UNUSED_LEND_4,
+            borrowY: UNUSED_LEND_5,
+          }),
+        ],
+      },
+    },
   })
+}
+
+async function seed(indexer: ReturnType<typeof createTestIndexer>) {
+  await registerDebtL(indexer)
   const pool = createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n)
   indexer.Pool.set({ ...pool, totalAssets: [0n, 0n, 0n, 1000n, 0n, 0n] })
 }
@@ -33,7 +48,7 @@ function seed(indexer: ReturnType<typeof createTestIndexer>) {
 describe('borrowLiquidity handlers', () => {
   it('BorrowLiquidity bumps counters and writes the entity; totals untouched', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -43,7 +58,7 @@ describe('borrowLiquidity handlers', () => {
               event: 'BorrowLiquidity',
               srcAddress: DEBT_L,
               logIndex: 0,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xbl', from: TO },
               params: { sender: SENDER, to: TO, assets: 400n, shares: 390n },
             },
@@ -65,16 +80,7 @@ describe('borrowLiquidity handlers', () => {
 
   it('a pair-sender penalty accrues to penaltiesTokenL with L twins at activeBefore, bumping no user counter', async () => {
     const indexer = createTestIndexer()
-    indexer.LendingToken.set({
-      id: DEBT_L_ID,
-      symbol: 'dLP',
-      name: 'Debt LP',
-      decimals: 18,
-      pool_id: POOL_ID,
-      tokenType: 3, // BORROW_L
-      pendingAssets: undefined,
-      pendingShares: undefined,
-    })
+    await registerDebtL(indexer)
     indexer.Pool.set({
       ...createDefaultPool(POOL_ID, 'tx', 'ty', 'X-Y', 1n, 1n),
       reserveX: 1000n,
@@ -90,7 +96,7 @@ describe('borrowLiquidity handlers', () => {
               event: 'BorrowLiquidity',
               srcAddress: DEBT_L,
               logIndex: 0,
-              block: { number: 11, timestamp: 100 },
+              block: { number: testBlockNumber(11), timestamp: 100 },
               transaction: { hash: '0xpen', from: SENDER },
               params: { sender: POOL, to: POOL, assets: 10n, shares: 10n },
             },
@@ -119,7 +125,7 @@ describe('borrowLiquidity handlers', () => {
 
   it('RepayLiquidity attributes to the raw onBehalfOf (no rewrite) and bumps counters', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     indexer.Position.set({
       id: POSITION_ID,
       user_id: TO_ID,
@@ -146,7 +152,7 @@ describe('borrowLiquidity handlers', () => {
               event: 'RepayLiquidity',
               srcAddress: DEBT_L,
               logIndex: 0,
-              block: { number: 11, timestamp: 110 },
+              block: { number: testBlockNumber(11), timestamp: 110 },
               transaction: { hash: '0xrl', from: TO },
               params: { sender: SENDER, onBehalfOf: TO, assets: 200n, shares: 190n },
             },
@@ -165,7 +171,7 @@ describe('borrowLiquidity handlers', () => {
   // Same bad-debt writeoff rule as borrow.test.ts, on the liquidity side.
   it('RepayLiquidity with the pair as sender skips counters but keeps the entity', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -175,7 +181,7 @@ describe('borrowLiquidity handlers', () => {
               event: 'RepayLiquidity',
               srcAddress: DEBT_L,
               logIndex: 0,
-              block: { number: 11, timestamp: 110 },
+              block: { number: testBlockNumber(11), timestamp: 110 },
               transaction: { hash: '0xrlb', from: TO },
               params: { sender: POOL, onBehalfOf: TO, assets: 200n, shares: 190n },
             },
@@ -194,7 +200,7 @@ describe('borrowLiquidity handlers', () => {
 
   it('Transfer skips zero-value transfers (returns early)', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -204,7 +210,7 @@ describe('borrowLiquidity handlers', () => {
               event: 'Transfer',
               srcAddress: DEBT_L,
               logIndex: 0,
-              block: { number: 12, timestamp: 120 },
+              block: { number: testBlockNumber(12), timestamp: 120 },
               transaction: { hash: '0xtr', from: TO },
               params: { from: SENDER, to: TO, value: 0n },
             },

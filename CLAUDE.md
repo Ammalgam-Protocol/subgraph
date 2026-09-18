@@ -8,6 +8,10 @@
 ## Model
 - Ids are chain-id-scoped — `${chainId}-${address}` (`scopedId`); one `Position` per (user, pool).
 
+## Session hygiene
+- Don't re-read a file already loaded in context this session unless it changed on disk; reuse what's already there, or grep just the part you need instead of reading it whole again.
+- Grep `envio tools fetch-docs` output to the relevant section before it lands in context, instead of dumping the raw doc.
+
 ## Agent skills
 
 ### Issue tracker

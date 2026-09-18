@@ -1,8 +1,12 @@
 import { createTestIndexer } from 'envio'
 import { describe, expect, it } from 'vitest'
-
 import { getEventId, getPositionId, scopedId } from '../../src/utils/id'
 import { createDefaultPool } from '../../src/utils/pool'
+import {
+  lendingTokensCreatedRegistration,
+  pairCreatedRegistration,
+  testBlockNumber,
+} from './testBlock'
 
 const CHAIN = 11155111
 const POOL = '0xaa01000000000000000000000000000000000001'
@@ -15,42 +19,60 @@ const TO = '0x7000000000000000000000000000000000000001'
 const BORROWER = '0xb00b000000000000000000000000000000000001'
 const LIQUIDATOR = '0x11c0000000000000000000000000000000000001'
 const ZERO = '0x0000000000000000000000000000000000000000'
+const UNUSED_LEND_1 = '0x00000000000000000000000000000000000000e1'
+const UNUSED_LEND_2 = '0x00000000000000000000000000000000000000e2'
+const UNUSED_LEND_3 = '0x00000000000000000000000000000000000000e3'
+const UNUSED_LEND_4 = '0x00000000000000000000000000000000000000e4'
+const UNUSED_LEND_5 = '0x00000000000000000000000000000000000000e5'
 
 const POOL_ID = scopedId(CHAIN, POOL)
 const TX_ID = scopedId(CHAIN, TX)
 const TY_ID = scopedId(CHAIN, TY)
-const LEND_BX_ID = scopedId(CHAIN, LEND_BX)
 const FROM_ID = scopedId(CHAIN, FROM)
 const SENDER_ID = scopedId(CHAIN, SENDER)
 const TO_ID = scopedId(CHAIN, TO)
 const BORROWER_ID = scopedId(CHAIN, BORROWER)
 const LIQUIDATOR_ID = scopedId(CHAIN, LIQUIDATOR)
 
-function seed(indexer: ReturnType<typeof createTestIndexer>) {
-  indexer.Token.set({
-    id: TX_ID,
-    symbol: 'TKX',
-    name: 'Token X',
-    decimals: 18,
-    poolCount: 1,
-    txCount: 0,
-    volume: 0n,
-    whitelistPoolIds: [],
+async function registerPair(indexer: ReturnType<typeof createTestIndexer>) {
+  await indexer.process({
+    chains: {
+      11155111: {
+        simulate: [pairCreatedRegistration({ pair: POOL, tokenX: TX, tokenY: TY })],
+      },
+    },
   })
-  indexer.Token.set({
-    id: TY_ID,
-    symbol: 'TKY',
-    name: 'Token Y',
-    decimals: 18,
-    poolCount: 1,
-    txCount: 0,
-    volume: 0n,
-    whitelistPoolIds: [],
+}
+
+// Only the borrowX slot is exercised here; the other five take placeholder addresses.
+async function registerLendBx(indexer: ReturnType<typeof createTestIndexer>) {
+  await indexer.process({
+    chains: {
+      11155111: {
+        simulate: [
+          // blockOffset 1: registerPair already used offset 0 on this indexer.
+          lendingTokensCreatedRegistration({
+            pair: POOL,
+            depositL: UNUSED_LEND_1,
+            depositX: UNUSED_LEND_2,
+            depositY: UNUSED_LEND_3,
+            borrowL: UNUSED_LEND_4,
+            borrowX: LEND_BX,
+            borrowY: UNUSED_LEND_5,
+            blockOffset: 1,
+          }),
+        ],
+      },
+    },
   })
+}
+
+async function seed(indexer: ReturnType<typeof createTestIndexer>) {
+  await registerPair(indexer)
   indexer.Pool.set({ ...createDefaultPool(POOL_ID, TX_ID, TY_ID, 'TKX-TKY', 1n, 1n) })
 }
 
-function seedPool(
+async function seedPool(
   indexer: ReturnType<typeof createTestIndexer>,
   overrides: {
     totalAssets?: bigint[]
@@ -59,7 +81,7 @@ function seedPool(
     reserveY?: bigint
   },
 ) {
-  seed(indexer)
+  await seed(indexer)
   indexer.Pool.set({
     ...createDefaultPool(POOL_ID, TX_ID, TY_ID, 'TKX-TKY', 1n, 1n),
     ...overrides,
@@ -69,7 +91,7 @@ function seedPool(
 describe('pair handlers', () => {
   it('Sync updates reserves, prices, and creates a Sync entity', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -79,7 +101,7 @@ describe('pair handlers', () => {
               event: 'Sync',
               srcAddress: POOL,
               logIndex: 0,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xsync', from: FROM },
               params: { reserveXAssets: 2000n, reserveYAssets: 1000n },
             },
@@ -98,7 +120,7 @@ describe('pair handlers', () => {
 
   it('Swap updates volume, counts, and creates Swap + Users', async () => {
     const indexer = createTestIndexer()
-    seedPool(indexer, { reserveX: 1000n, reserveY: 1000n })
+    await seedPool(indexer, { reserveX: 1000n, reserveY: 1000n })
     await indexer.process({
       chains: {
         11155111: {
@@ -108,7 +130,7 @@ describe('pair handlers', () => {
               event: 'Swap',
               srcAddress: POOL,
               logIndex: 1,
-              block: { number: 11, timestamp: 110 },
+              block: { number: testBlockNumber(11), timestamp: 110 },
               transaction: { hash: '0xswap', from: FROM },
               params: {
                 sender: SENDER,
@@ -140,7 +162,7 @@ describe('pair handlers', () => {
 
   it('Liquidate records the event, bumps counts, and tracks the borrower', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -150,7 +172,7 @@ describe('pair handlers', () => {
               event: 'Liquidate',
               srcAddress: POOL,
               logIndex: 2,
-              block: { number: 12, timestamp: 120 },
+              block: { number: testBlockNumber(12), timestamp: 120 },
               transaction: { hash: '0xliq', from: FROM },
               params: {
                 borrower: BORROWER,
@@ -183,7 +205,7 @@ describe('pair handlers', () => {
 
   it('InterestAccrued refreshes reserves/prices and records the event', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -193,7 +215,7 @@ describe('pair handlers', () => {
               event: 'InterestAccrued',
               srcAddress: POOL,
               logIndex: 3,
-              block: { number: 13, timestamp: 130 },
+              block: { number: testBlockNumber(13), timestamp: 130 },
               transaction: { hash: '0xint', from: FROM },
               params: {
                 reserveXAssets: 4000n,
@@ -222,7 +244,7 @@ describe('pair handlers', () => {
 
   it('BurnBadDebt records the event and bumps the count', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -232,7 +254,7 @@ describe('pair handlers', () => {
               event: 'BurnBadDebt',
               srcAddress: POOL,
               logIndex: 4,
-              block: { number: 14, timestamp: 140 },
+              block: { number: testBlockNumber(14), timestamp: 140 },
               transaction: { hash: '0xbbd', from: FROM },
               params: {
                 borrower: BORROWER,
@@ -255,7 +277,7 @@ describe('pair handlers', () => {
 
   it('InterestAccrued snapshots all 6 totalAssets including derived depositL', async () => {
     const indexer = createTestIndexer()
-    seedPool(indexer, { totalAssets: [999n, 999n, 999n, 999n, 999n, 999n] })
+    await seedPool(indexer, { totalAssets: [999n, 999n, 999n, 999n, 999n, 999n] })
     await indexer.process({
       chains: {
         11155111: {
@@ -265,7 +287,7 @@ describe('pair handlers', () => {
               event: 'InterestAccrued',
               srcAddress: POOL,
               logIndex: 0,
-              block: { number: 20, timestamp: 200 },
+              block: { number: testBlockNumber(20), timestamp: 200 },
               transaction: { hash: '0xint2', from: FROM },
               params: {
                 reserveXAssets: 400n,
@@ -289,7 +311,7 @@ describe('pair handlers', () => {
 
   it('InterestAccrued re-derives DEPOSIT_L fee-inclusive (D10)', async () => {
     const indexer = createTestIndexer()
-    seedPool(indexer, { totalAssets: [999n, 0n, 0n, 0n, 100n, 200n] })
+    await seedPool(indexer, { totalAssets: [999n, 0n, 0n, 0n, 100n, 200n] })
     await indexer.process({
       chains: {
         11155111: {
@@ -299,7 +321,7 @@ describe('pair handlers', () => {
               event: 'InterestAccrued',
               srcAddress: POOL,
               logIndex: 0,
-              block: { number: 27, timestamp: 270 },
+              block: { number: testBlockNumber(27), timestamp: 270 },
               transaction: { hash: '0xintfee', from: FROM },
               params: {
                 reserveXAssets: 50n,
@@ -325,7 +347,7 @@ describe('pair handlers', () => {
 
   it('InterestAccrued writes gross, protocol, and lp interest with L twins to Pool and PoolDayData', async () => {
     const indexer = createTestIndexer()
-    seedPool(indexer, {
+    await seedPool(indexer, {
       totalAssets: [500n, 100n, 200n, 50n, 150n, 300n],
       reserveX: 1000n,
       reserveY: 2000n,
@@ -339,7 +361,7 @@ describe('pair handlers', () => {
               event: 'InterestAccrued',
               srcAddress: POOL,
               logIndex: 0,
-              block: { number: 30, timestamp: 100000 },
+              block: { number: testBlockNumber(30), timestamp: 100000 },
               transaction: { hash: '0xintl1', from: FROM },
               params: {
                 reserveXAssets: 1100n,
@@ -385,7 +407,7 @@ describe('pair handlers', () => {
 
   it('InterestAccrued: protocolInterestToken* never exceeds grossInterestToken*', async () => {
     const indexer = createTestIndexer()
-    seedPool(indexer, {
+    await seedPool(indexer, {
       totalAssets: [500n, 100n, 200n, 50n, 150n, 300n],
       reserveX: 1000n,
       reserveY: 2000n,
@@ -399,7 +421,7 @@ describe('pair handlers', () => {
               event: 'InterestAccrued',
               srcAddress: POOL,
               logIndex: 0,
-              block: { number: 30, timestamp: 100000 },
+              block: { number: testBlockNumber(30), timestamp: 100000 },
               transaction: { hash: '0xintl2', from: FROM },
               params: {
                 reserveXAssets: 1100n,
@@ -423,7 +445,7 @@ describe('pair handlers', () => {
 
   it('InterestAccrued: zero-interest accrual writes zeros, not nulls', async () => {
     const indexer = createTestIndexer()
-    seedPool(indexer, {
+    await seedPool(indexer, {
       totalAssets: [500n, 100n, 200n, 50n, 150n, 300n],
       reserveX: 1000n,
       reserveY: 2000n,
@@ -437,7 +459,7 @@ describe('pair handlers', () => {
               event: 'InterestAccrued',
               srcAddress: POOL,
               logIndex: 0,
-              block: { number: 30, timestamp: 100000 },
+              block: { number: testBlockNumber(30), timestamp: 100000 },
               transaction: { hash: '0xintl3', from: FROM },
               params: {
                 // Reserves and borrows match the pre-state exactly: no interest accrued.
@@ -470,7 +492,7 @@ describe('pair handlers', () => {
 
   it('InterestAccrued rounds protocol L interest up on a remainder', async () => {
     const indexer = createTestIndexer()
-    seedPool(indexer, {
+    await seedPool(indexer, {
       totalAssets: [1000n, 500n, 500n, 0n, 0n, 0n],
       reserveX: 1000n,
       reserveY: 1000n,
@@ -485,7 +507,7 @@ describe('pair handlers', () => {
               event: 'InterestAccrued',
               srcAddress: POOL,
               logIndex: 0,
-              block: { number: 31, timestamp: 100100 },
+              block: { number: testBlockNumber(31), timestamp: 100100 },
               transaction: { hash: '0xintl4', from: FROM },
               params: {
                 reserveXAssets: 1000n,
@@ -512,12 +534,12 @@ describe('pair handlers', () => {
 
   it('InterestAccrued rounds each same-day accrual before accumulation', async () => {
     const indexer = createTestIndexer()
-    seedPool(indexer, {
+    await seedPool(indexer, {
       totalAssets: [1000n, 500n, 500n, 0n, 0n, 0n],
       reserveX: 1000n,
       reserveY: 1000n,
     })
-    const block = { number: 32, timestamp: 100200 }
+    const block = { number: testBlockNumber(32), timestamp: 100200 }
 
     await indexer.process({
       chains: {
@@ -574,7 +596,7 @@ describe('pair handlers', () => {
 
   it('InterestAccrued reconciles independently rounded accruals across UTC days', async () => {
     const indexer = createTestIndexer()
-    seedPool(indexer, {
+    await seedPool(indexer, {
       totalAssets: [1000n, 500n, 500n, 0n, 0n, 0n],
       reserveX: 1000n,
       reserveY: 1000n,
@@ -589,7 +611,7 @@ describe('pair handlers', () => {
               event: 'InterestAccrued',
               srcAddress: POOL,
               logIndex: 0,
-              block: { number: 40, timestamp: 86399 },
+              block: { number: testBlockNumber(40), timestamp: 86399 },
               transaction: { hash: '0xday1', from: FROM },
               params: {
                 reserveXAssets: 1000n,
@@ -606,7 +628,7 @@ describe('pair handlers', () => {
               event: 'InterestAccrued',
               srcAddress: POOL,
               logIndex: 0,
-              block: { number: 41, timestamp: 86400 },
+              block: { number: testBlockNumber(41), timestamp: 86400 },
               transaction: { hash: '0xday2', from: FROM },
               params: {
                 reserveXAssets: 1000n,
@@ -647,7 +669,7 @@ describe('pair handlers', () => {
 
   it('InterestAccrued: a negative borrow delta clamps gross interest at 0', async () => {
     const indexer = createTestIndexer()
-    seedPool(indexer, {
+    await seedPool(indexer, {
       totalAssets: [500n, 100n, 200n, 50n, 150n, 300n],
       reserveX: 1000n,
       reserveY: 2000n,
@@ -661,7 +683,7 @@ describe('pair handlers', () => {
               event: 'InterestAccrued',
               srcAddress: POOL,
               logIndex: 0,
-              block: { number: 30, timestamp: 100000 },
+              block: { number: testBlockNumber(30), timestamp: 100000 },
               transaction: { hash: '0xintl4', from: FROM },
               params: {
                 reserveXAssets: 1000n,
@@ -685,7 +707,7 @@ describe('pair handlers', () => {
 
   it('Sync recomputes totalAssets[DEPOSIT_L] from new reserves (D10)', async () => {
     const indexer = createTestIndexer()
-    seedPool(indexer, { totalAssets: [700n, 500n, 600n, 100n, 200n, 50n] })
+    await seedPool(indexer, { totalAssets: [700n, 500n, 600n, 100n, 200n, 50n] })
     await indexer.process({
       chains: {
         11155111: {
@@ -695,7 +717,7 @@ describe('pair handlers', () => {
               event: 'Sync',
               srcAddress: POOL,
               logIndex: 0,
-              block: { number: 21, timestamp: 210 },
+              block: { number: testBlockNumber(21), timestamp: 210 },
               transaction: { hash: '0xsync2', from: FROM },
               params: { reserveXAssets: 1600n, reserveYAssets: 900n },
             },
@@ -711,7 +733,7 @@ describe('pair handlers', () => {
 
   it('BurnBadDebt BORROW_X applies the deposit-side haircut', async () => {
     const indexer = createTestIndexer()
-    seedPool(indexer, { reserveX: 1000n, totalAssets: [0n, 900n, 0n, 0n, 500n, 0n] })
+    await seedPool(indexer, { reserveX: 1000n, totalAssets: [0n, 900n, 0n, 0n, 500n, 0n] })
     await indexer.process({
       chains: {
         11155111: {
@@ -721,7 +743,7 @@ describe('pair handlers', () => {
               event: 'BurnBadDebt',
               srcAddress: POOL,
               logIndex: 0,
-              block: { number: 22, timestamp: 220 },
+              block: { number: testBlockNumber(22), timestamp: 220 },
               transaction: { hash: '0xbbdx', from: FROM },
               params: {
                 borrower: BORROWER,
@@ -743,22 +765,13 @@ describe('pair handlers', () => {
   it('BurnBadDebt BORROW_X re-derives deposit L after the deposit-side haircut', async () => {
     const indexer = createTestIndexer()
     // reserves 100/100, depositY 1000, borrowX 1096 -> depositL = 89
-    seedPool(indexer, {
+    await seedPool(indexer, {
       reserveX: 100n,
       reserveY: 100n,
       totalAssets: [89n, 1000n, 1000n, 0n, 1096n, 0n],
       totalShares: [0n, 1000n, 1000n, 0n, 1096n, 0n],
     })
-    indexer.LendingToken.set({
-      id: LEND_BX_ID,
-      symbol: 'dTKX',
-      name: 'Debt TKX',
-      decimals: 18,
-      pool_id: POOL_ID,
-      tokenType: 4,
-      pendingAssets: undefined,
-      pendingShares: undefined,
-    })
+    await registerLendBx(indexer)
     indexer.Position.set({
       id: getPositionId(BORROWER_ID, POOL_ID),
       user_id: BORROWER_ID,
@@ -786,7 +799,7 @@ describe('pair handlers', () => {
               event: 'Repay',
               srcAddress: LEND_BX,
               logIndex: 0,
-              block: { number: 22, timestamp: 220 },
+              block: { number: testBlockNumber(22), timestamp: 220 },
               transaction: { hash: '0xbbd-small', from: BORROWER },
               params: { sender: POOL, onBehalfOf: BORROWER, assets: 1n, shares: 1n },
             },
@@ -795,7 +808,7 @@ describe('pair handlers', () => {
               event: 'Transfer',
               srcAddress: LEND_BX,
               logIndex: 1,
-              block: { number: 22, timestamp: 220 },
+              block: { number: testBlockNumber(22), timestamp: 220 },
               transaction: { hash: '0xbbd-small', from: BORROWER },
               params: { from: BORROWER, to: ZERO, value: 1n },
             },
@@ -804,7 +817,7 @@ describe('pair handlers', () => {
               event: 'BurnBadDebt',
               srcAddress: POOL,
               logIndex: 2,
-              block: { number: 22, timestamp: 220 },
+              block: { number: testBlockNumber(22), timestamp: 220 },
               transaction: { hash: '0xbbd-small', from: BORROWER },
               params: {
                 borrower: BORROWER,
@@ -827,7 +840,7 @@ describe('pair handlers', () => {
 
   it('BurnBadDebt on BORROW_L touches neither BORROW_L nor DEPOSIT_L directly (D10)', async () => {
     const indexer = createTestIndexer()
-    seedPool(indexer, { totalAssets: [700n, 0n, 0n, 300n, 0n, 0n] })
+    await seedPool(indexer, { totalAssets: [700n, 0n, 0n, 300n, 0n, 0n] })
     await indexer.process({
       chains: {
         11155111: {
@@ -837,7 +850,7 @@ describe('pair handlers', () => {
               event: 'BurnBadDebt',
               srcAddress: POOL,
               logIndex: 0,
-              block: { number: 23, timestamp: 230 },
+              block: { number: testBlockNumber(23), timestamp: 230 },
               transaction: { hash: '0xbbdl', from: FROM },
               params: {
                 borrower: BORROWER,
@@ -859,7 +872,7 @@ describe('pair handlers', () => {
 
   it('UpdateExternalLiquidity stores the value', async () => {
     const indexer = createTestIndexer()
-    seed(indexer)
+    await seed(indexer)
     await indexer.process({
       chains: {
         11155111: {
@@ -869,7 +882,7 @@ describe('pair handlers', () => {
               event: 'UpdateExternalLiquidity',
               srcAddress: POOL,
               logIndex: 0,
-              block: { number: 24, timestamp: 240 },
+              block: { number: testBlockNumber(24), timestamp: 240 },
               transaction: { hash: '0xext', from: FROM },
               params: { externalLiquidity: 777n },
             },

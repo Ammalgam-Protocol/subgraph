@@ -1,9 +1,13 @@
 import { createTestIndexer } from 'envio'
 import { describe, expect, it } from 'vitest'
-
 import { getEventId, getPositionId, scopedId } from '../../src/utils/id'
 import { toAssets } from '../../src/utils/math'
 import { createDefaultPool } from '../../src/utils/pool'
+import {
+  lendingTokensCreatedRegistration,
+  pairCreatedRegistration,
+  testBlockNumber,
+} from './testBlock'
 
 const CHAIN = 11155111
 const POOL: `0x${string}` = '0xaa01000000000000000000000000000000000001'
@@ -14,6 +18,7 @@ const LEND_Y: `0x${string}` = '0x00000000000000000000000000000000000000d2'
 const LEND_L: `0x${string}` = '0x00000000000000000000000000000000000000d0'
 const LEND_BX: `0x${string}` = '0x00000000000000000000000000000000000000d4'
 const LEND_BL: `0x${string}` = '0x00000000000000000000000000000000000000d3'
+const UNUSED_LEND_BY: `0x${string}` = '0x00000000000000000000000000000000000000e1'
 const ALICE: `0x${string}` = '0xc0de000000000000000000000000000000000001'
 const BOB: `0x${string}` = '0xc0de000000000000000000000000000000000002'
 const BORROWER: `0x${string}` = '0xb00b000000000000000000000000000000000001'
@@ -30,6 +35,28 @@ const LEND_BX_ID = scopedId(CHAIN, LEND_BX)
 const LEND_BL_ID = scopedId(CHAIN, LEND_BL)
 const ALICE_ID = scopedId(CHAIN, ALICE)
 const BOB_ID = scopedId(CHAIN, BOB)
+
+// Every test calls this first; the seed*() helpers below overwrite what factory.ts's onEvent creates.
+async function registerAll(indexer: ReturnType<typeof createTestIndexer>) {
+  await indexer.process({
+    chains: {
+      11155111: {
+        simulate: [
+          lendingTokensCreatedRegistration({
+            pair: POOL,
+            depositL: LEND_L,
+            depositX: LEND_X,
+            depositY: LEND_Y,
+            borrowL: LEND_BL,
+            borrowX: LEND_BX,
+            borrowY: UNUSED_LEND_BY,
+          }),
+          pairCreatedRegistration({ pair: POOL, tokenX: TX, tokenY: TY }),
+        ],
+      },
+    },
+  })
+}
 
 function seedLendingToken(
   indexer: ReturnType<typeof createTestIndexer>,
@@ -90,7 +117,7 @@ function depositTransfer(
   to: `0x${string}`,
   value: bigint,
   logIndex: number,
-  block: { number: number; timestamp: number } = { number: 10, timestamp: 100 },
+  block: { number: number; timestamp: number } = { number: testBlockNumber(10), timestamp: 100 },
 ) {
   return {
     contract: 'ERC4626Deposit' as const,
@@ -109,7 +136,7 @@ function debtTransfer(from: `0x${string}`, to: `0x${string}`, value: bigint, log
     event: 'Transfer' as const,
     srcAddress: LEND_BX,
     logIndex,
-    block: { number: 10, timestamp: 100 },
+    block: { number: testBlockNumber(10), timestamp: 100 },
     transaction: { hash: '0xt', from: ALICE },
     params: { from, to, value },
   }
@@ -120,7 +147,7 @@ function debtLiquidityTransfer(
   to: `0x${string}`,
   value: bigint,
   logIndex: number,
-  block: { number: number; timestamp: number } = { number: 10, timestamp: 100 },
+  block: { number: number; timestamp: number } = { number: testBlockNumber(10), timestamp: 100 },
 ) {
   return {
     contract: 'ERC20DebtLiquidity' as const,
@@ -138,7 +165,7 @@ function burnBadDebt(
   badDebtAssets: bigint,
   badDebtShares: bigint,
   logIndex: number,
-  block: { number: number; timestamp: number } = { number: 10, timestamp: 100 },
+  block: { number: number; timestamp: number } = { number: testBlockNumber(10), timestamp: 100 },
 ) {
   return {
     contract: 'AmmalgamPair' as const,
@@ -156,7 +183,7 @@ function depositLTransfer(
   to: `0x${string}`,
   value: bigint,
   logIndex: number,
-  block: { number: number; timestamp: number } = { number: 10, timestamp: 100 },
+  block: { number: number; timestamp: number } = { number: testBlockNumber(10), timestamp: 100 },
 ) {
   return {
     contract: 'ERC20DepositLiquidity' as const,
@@ -175,7 +202,7 @@ function mintLAction(
   assets: bigint,
   shares: bigint,
   logIndex: number,
-  block: { number: number; timestamp: number } = { number: 10, timestamp: 100 },
+  block: { number: number; timestamp: number } = { number: testBlockNumber(10), timestamp: 100 },
 ) {
   return {
     contract: 'ERC20DepositLiquidity' as const,
@@ -194,7 +221,7 @@ function burnLAction(
   assets: bigint,
   shares: bigint,
   logIndex: number,
-  block: { number: number; timestamp: number } = { number: 10, timestamp: 100 },
+  block: { number: number; timestamp: number } = { number: testBlockNumber(10), timestamp: 100 },
 ) {
   return {
     contract: 'ERC20DepositLiquidity' as const,
@@ -213,7 +240,7 @@ function borrowLAction(
   assets: bigint,
   shares: bigint,
   logIndex: number,
-  block: { number: number; timestamp: number } = { number: 10, timestamp: 100 },
+  block: { number: number; timestamp: number } = { number: testBlockNumber(10), timestamp: 100 },
 ) {
   return {
     contract: 'ERC20DebtLiquidity' as const,
@@ -234,7 +261,7 @@ function depositAction(
   assets: bigint,
   shares: bigint,
   logIndex: number,
-  block: { number: number; timestamp: number } = { number: 10, timestamp: 100 },
+  block: { number: number; timestamp: number } = { number: testBlockNumber(10), timestamp: 100 },
 ) {
   return {
     contract: 'ERC4626Deposit' as const,
@@ -254,7 +281,7 @@ function withdrawAction(
   assets: bigint,
   shares: bigint,
   logIndex: number,
-  block: { number: number; timestamp: number } = { number: 10, timestamp: 100 },
+  block: { number: number; timestamp: number } = { number: testBlockNumber(10), timestamp: 100 },
 ) {
   return {
     contract: 'ERC4626Deposit' as const,
@@ -275,7 +302,7 @@ function erc4626Transfer(
   to: `0x${string}`,
   value: bigint,
   logIndex: number,
-  block: { number: number; timestamp: number } = { number: 10, timestamp: 100 },
+  block: { number: number; timestamp: number } = { number: testBlockNumber(10), timestamp: 100 },
 ) {
   return {
     contract: 'ERC4626Deposit' as const,
@@ -292,7 +319,7 @@ function syncEvent(
   reserveXAssets: bigint,
   reserveYAssets: bigint,
   logIndex: number,
-  block: { number: number; timestamp: number } = { number: 10, timestamp: 100 },
+  block: { number: number; timestamp: number } = { number: testBlockNumber(10), timestamp: 100 },
 ) {
   return {
     contract: 'AmmalgamPair' as const,
@@ -308,7 +335,7 @@ function syncEvent(
 function swapEvent(
   params: { amountXIn: bigint; amountYIn: bigint; amountXOut: bigint; amountYOut: bigint },
   logIndex: number,
-  block: { number: number; timestamp: number } = { number: 10, timestamp: 100 },
+  block: { number: number; timestamp: number } = { number: testBlockNumber(10), timestamp: 100 },
 ) {
   return {
     contract: 'AmmalgamPair' as const,
@@ -332,7 +359,7 @@ function interestAccruedEvent(
     borrowYAssets: bigint
   },
   logIndex: number,
-  block: { number: number; timestamp: number } = { number: 10, timestamp: 100 },
+  block: { number: number; timestamp: number } = { number: testBlockNumber(10), timestamp: 100 },
 ) {
   return {
     contract: 'AmmalgamPair' as const,
@@ -348,6 +375,7 @@ function interestAccruedEvent(
 describe('cross-handler invariants and sequences', () => {
   it('reconstruction invariant holds across mint/mint/move/burn', async () => {
     const indexer = createTestIndexer()
+    await registerAll(indexer)
     seedLendingToken(indexer, LEND_X_ID, POOL_ID, 1)
     seedPool(indexer)
     await indexer.process({
@@ -374,6 +402,7 @@ describe('cross-handler invariants and sequences', () => {
 
   it('facade debt-token mint-then-forward attributes shares to the final recipient', async () => {
     const indexer = createTestIndexer()
+    await registerAll(indexer)
     seedLendingToken(indexer, LEND_BX_ID, POOL_ID, 4)
     seedPool(indexer)
     await indexer.process({
@@ -391,6 +420,7 @@ describe('cross-handler invariants and sequences', () => {
 
   it('protocol-fee mint after InterestAccrued reconstructs via snapshot-then-delta', async () => {
     const indexer = createTestIndexer()
+    await registerAll(indexer)
     indexer.Token.set({
       id: TX_ID,
       symbol: 'TKX',
@@ -424,7 +454,7 @@ describe('cross-handler invariants and sequences', () => {
               event: 'InterestAccrued' as const,
               srcAddress: POOL,
               logIndex: 0,
-              block: { number: 20, timestamp: 200 },
+              block: { number: testBlockNumber(20), timestamp: 200 },
               transaction: { hash: '0xfee', from: ALICE },
               params: {
                 reserveXAssets: 1000n,
@@ -436,7 +466,7 @@ describe('cross-handler invariants and sequences', () => {
                 borrowYAssets: 0n,
               },
             },
-            depositTransfer(ZERO, FEE_TO, 10n, 1, { number: 20, timestamp: 200 }),
+            depositTransfer(ZERO, FEE_TO, 10n, 1, { number: testBlockNumber(20), timestamp: 200 }),
           ],
         },
       },
@@ -448,6 +478,7 @@ describe('cross-handler invariants and sequences', () => {
 
   it('debt-burn zeroes the borrower and pool totals for the burned tokenType', async () => {
     const indexer = createTestIndexer()
+    await registerAll(indexer)
     seedLendingToken(indexer, LEND_BX_ID, POOL_ID, 4)
     seedPool(indexer, {
       totalAssets: [0n, 0n, 0n, 0n, 100n, 0n],
@@ -481,6 +512,7 @@ describe('cross-handler invariants and sequences', () => {
 
   it('bad-debt leftover hop nets the pair position and writes no Transfer entity', async () => {
     const indexer = createTestIndexer()
+    await registerAll(indexer)
     seedLendingToken(indexer, LEND_X_ID, POOL_ID, 1)
     seedPool(indexer, {
       totalAssets: [0n, 300n, 0n, 0n, 0n, 0n],
@@ -522,6 +554,7 @@ describe('cross-handler invariants and sequences', () => {
 
   it('protocolFeesTokenX equals the raw sum of flagged Deposit amounts', async () => {
     const indexer = createTestIndexer()
+    await registerAll(indexer)
     seedLendingToken(indexer, LEND_X_ID, POOL_ID, 1)
     seedPool(indexer)
     const feeDeposit = (logIndex: number, assets: bigint, sender: `0x${string}`) => ({
@@ -529,7 +562,7 @@ describe('cross-handler invariants and sequences', () => {
       event: 'Deposit' as const,
       srcAddress: LEND_X,
       logIndex,
-      block: { number: 10, timestamp: 100 },
+      block: { number: testBlockNumber(10), timestamp: 100 },
       transaction: { hash: '0xinv', from: ALICE },
       params: { sender, owner: sender === POOL ? FEE_TO : ALICE, assets, shares: 1n },
     })
@@ -555,6 +588,7 @@ describe('cross-handler invariants and sequences', () => {
 
   it('penaltiesTokenL equals the raw sum of flagged Borrow amounts', async () => {
     const indexer = createTestIndexer()
+    await registerAll(indexer)
     seedLendingToken(indexer, LEND_BL_ID, POOL_ID, 3)
     seedPool(indexer)
     const borrowLiquidity = (logIndex: number, assets: bigint, sender: `0x${string}`) => ({
@@ -562,7 +596,7 @@ describe('cross-handler invariants and sequences', () => {
       event: 'BorrowLiquidity' as const,
       srcAddress: LEND_BL,
       logIndex,
-      block: { number: 10, timestamp: 100 },
+      block: { number: testBlockNumber(10), timestamp: 100 },
       transaction: { hash: '0xpen', from: ALICE },
       // Penalties are minted to the pair itself, user borrows to the borrower.
       params: { sender, to: sender === POOL ? POOL : ALICE, assets, shares: 1n },
@@ -589,6 +623,7 @@ describe('cross-handler invariants and sequences', () => {
 
   it("BurnBadDebt on BORROW_L lands the preceding Transfer burn's re-derive once, not twice (D10)", async () => {
     const indexer = createTestIndexer()
+    await registerAll(indexer)
     seedLendingToken(indexer, LEND_BL_ID, POOL_ID, 3)
     seedPool(indexer, {
       reserveX: 400n,
@@ -612,6 +647,7 @@ describe('cross-handler invariants and sequences', () => {
 
   it('a BORROW_L penalty mint before InterestAccrued is not double-counted (D10)', async () => {
     const indexer = createTestIndexer()
+    await registerAll(indexer)
     indexer.Token.set({
       id: TX_ID,
       symbol: 'TKX',
@@ -652,7 +688,7 @@ describe('cross-handler invariants and sequences', () => {
               event: 'InterestAccrued' as const,
               srcAddress: POOL,
               logIndex: 1,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xia', from: ALICE },
               params: {
                 reserveXAssets: 300n,
@@ -676,6 +712,7 @@ describe('cross-handler invariants and sequences', () => {
 describe('ledger identity (D8): five directional isolations, on a 1000/1000 pool', () => {
   it('a 100/200 imbalanced mint grows depositL by 148, with 100 in the Mint row', async () => {
     const indexer = createTestIndexer()
+    await registerAll(indexer)
     seedTokens(indexer)
     seedLendingToken(indexer, LEND_L_ID, POOL_ID, 0)
     seedPool(indexer, {
@@ -709,6 +746,7 @@ describe('ledger identity (D8): five directional isolations, on a 1000/1000 pool
 
   it('an 80/80 repay of 50 L owed (L over-repay) grows depositL by 30', async () => {
     const indexer = createTestIndexer()
+    await registerAll(indexer)
     seedTokens(indexer)
     seedLendingToken(indexer, LEND_BL_ID, POOL_ID, 3)
     seedPool(indexer, {
@@ -728,7 +766,7 @@ describe('ledger identity (D8): five directional isolations, on a 1000/1000 pool
               event: 'RepayLiquidity' as const,
               srcAddress: LEND_BL,
               logIndex: 0,
-              block: { number: 10, timestamp: 100 },
+              block: { number: testBlockNumber(10), timestamp: 100 },
               transaction: { hash: '0xrl', from: BORROWER },
               params: { sender: BORROWER, onBehalfOf: BORROWER, assets: 50n, shares: 50n },
             },
@@ -748,6 +786,7 @@ describe('ledger identity (D8): five directional isolations, on a 1000/1000 pool
 
   it('50 L of bad debt shrinks depositL by 50', async () => {
     const indexer = createTestIndexer()
+    await registerAll(indexer)
     seedLendingToken(indexer, LEND_BL_ID, POOL_ID, 3)
     seedPool(indexer, {
       reserveX: 1000n,
@@ -773,6 +812,7 @@ describe('ledger identity (D8): five directional isolations, on a 1000/1000 pool
 
   it('a 50 X deposit that crosses the depletion boundary grows depositL by 225, with no L event', async () => {
     const indexer = createTestIndexer()
+    await registerAll(indexer)
     seedLendingToken(indexer, LEND_X_ID, POOL_ID, 1)
     seedPool(indexer, {
       reserveX: 1000n,
@@ -805,6 +845,7 @@ describe('ledger identity (D8): five directional isolations, on a 1000/1000 pool
 
   it('the reverse withdrawal drops depositL by the same 225', async () => {
     const indexer = createTestIndexer()
+    await registerAll(indexer)
     seedLendingToken(indexer, LEND_X_ID, POOL_ID, 1)
     seedPool(indexer, {
       reserveX: 1000n,
@@ -833,6 +874,7 @@ describe('ledger identity (D8): five directional isolations, on a 1000/1000 pool
 describe('ledger identity (D8): mixed sequence', () => {
   it('yield + capital flow == ΔdepositL, within 1 L-wei, across swap/accrual/fee-mint/penalty/borrowLiquidity/mint/burn', async () => {
     const indexer = createTestIndexer()
+    await registerAll(indexer)
     indexer.Token.set({
       id: TX_ID,
       symbol: 'TKX',
@@ -979,6 +1021,7 @@ describe('cross-column invariants', () => {
 
   it('pure-L interest preserves the documented consumer identity for Pool and PoolDayData', async () => {
     const indexer = createTestIndexer()
+    await registerAll(indexer)
     seedTokens(indexer)
     seedLendingToken(indexer, LEND_L_ID, POOL_ID, 0)
     seedPool(indexer, {
@@ -987,7 +1030,7 @@ describe('cross-column invariants', () => {
       totalAssets: [1000n, 500n, 500n, 0n, 0n, 0n],
       totalShares: [1000n, 500n, 500n, 0n, 0n, 0n],
     })
-    const block = { number: 10, timestamp: 100 }
+    const block = { number: testBlockNumber(10), timestamp: 100 }
 
     await indexer.process({
       chains: {
@@ -1042,6 +1085,7 @@ describe('cross-column invariants', () => {
 
   it('dailyFees >= protocolRevenue, and protocolInterestToken* <= protocolFeesToken* and <= grossInterestToken*, for X, Y, L', async () => {
     const indexer = createTestIndexer()
+    await registerAll(indexer)
     seedTokens(indexer)
     seedLendingToken(indexer, LEND_X_ID, POOL_ID, 1)
     seedLendingToken(indexer, LEND_Y_ID, POOL_ID, 2)
@@ -1108,6 +1152,7 @@ describe('cross-column invariants', () => {
 
   it('sums every fee column on PoolDayData to the matching Pool column, across a day boundary', async () => {
     const indexer = createTestIndexer()
+    await registerAll(indexer)
     seedTokens(indexer)
     seedLendingToken(indexer, LEND_X_ID, POOL_ID, 1)
     seedLendingToken(indexer, LEND_BL_ID, POOL_ID, 3)
@@ -1117,8 +1162,8 @@ describe('cross-column invariants', () => {
       totalAssets: [5000n, 5000n, 5000n, 0n, 0n, 0n],
       totalShares: [5000n, 5000n, 5000n, 0n, 0n, 0n],
     })
-    const DAY1 = { number: 10, timestamp: 100 }
-    const DAY2 = { number: 20, timestamp: 100000 } // floor(100000/86400)*86400 != floor(100/86400)*86400
+    const DAY1 = { number: testBlockNumber(10), timestamp: 100 }
+    const DAY2 = { number: testBlockNumber(20), timestamp: 100000 } // floor(100000/86400)*86400 != floor(100/86400)*86400
 
     await indexer.process({
       chains: {

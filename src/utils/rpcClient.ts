@@ -17,9 +17,9 @@ const PUBLIC_RPC_URLS: Record<number, string> = {
 // Memoized per chain: idempotent, so the preload double-run cannot corrupt it.
 const clients: Record<number, ReturnType<typeof createPublicClient>> = {}
 
-// v8 ignore: only invoked from the effect wrappers, which run inside the Envio
-// worker thread (not observable by v8 coverage). Exercised by factory.test.ts.
-/* v8 ignore start */
+// envio's effect dispatch loads this file through its own dynamic import, outside vitest's
+// instrumentation, so istanbul records no calls. factory.test.ts covers it end-to-end.
+/* istanbul ignore start */
 export function getClient(chainId: number) {
   if (!clients[chainId]) {
     const chain = VIEM_CHAINS[chainId]
@@ -50,4 +50,4 @@ export function getClient(chainId: number) {
   }
   return clients[chainId]
 }
-/* v8 ignore stop */
+/* istanbul ignore stop */
