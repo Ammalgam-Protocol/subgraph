@@ -5,7 +5,7 @@ import { beforeAll } from 'vitest'
 // of falling through to viem's default *public* Sepolia endpoint (which adds
 // latency and makes the "offline" suite network-dependent and flaky).
 // The ENVIO_RPC_URL_<chainId> name matches the runtime convention in
-// tokenEffects.getClient.
+// rpcClient.getClient.
 beforeAll(() => {
   for (const key of Object.keys(process.env)) {
     if (key.startsWith('RPC_URL_') || key.startsWith('ENVIO_RPC_URL_')) {

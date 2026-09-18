@@ -1,7 +1,7 @@
 import { BigDecimal } from 'envio'
 import { describe, expect, it } from 'vitest'
 
-import { createDefaultPool, poolPriceFields } from '../../src/utils/pool'
+import { createDefaultPool, createDefaultPoolDayData, poolPriceFields } from '../../src/utils/pool'
 
 describe('pool utils', () => {
   it('createDefaultPool initializes a zeroed pool', () => {
@@ -14,6 +14,7 @@ describe('pool utils', () => {
     expect(pool.createdAtBlockNumber).toBe(20n)
     expect(pool.totalAssets).toEqual([0n, 0n, 0n, 0n, 0n, 0n])
     expect(pool.totalShares).toEqual([0n, 0n, 0n, 0n, 0n, 0n])
+    expect(pool.pendingProtocolInterestTxHash).toBeUndefined()
     expect(pool.txCount).toBe(0)
     expect(pool.depositCount).toBe(0)
     expect(pool.withdrawCount).toBe(0)
@@ -30,6 +31,89 @@ describe('pool utils', () => {
     expect(pool.tokenYPrice.toString()).toBe('0')
     expect(pool.volumeTokenX.toString()).toBe('0')
     expect(pool.volumeTokenY.toString()).toBe('0')
+    const FEE_COLUMNS = [
+      'swapFeesTokenX',
+      'swapFeesTokenY',
+      'swapFeesTokenL',
+      'grossInterestTokenX',
+      'grossInterestTokenY',
+      'grossInterestTokenL',
+      'grossInterestTokenLAsX',
+      'grossInterestTokenLAsY',
+      'protocolInterestTokenX',
+      'protocolInterestTokenY',
+      'protocolInterestTokenL',
+      'protocolInterestTokenLAsX',
+      'protocolInterestTokenLAsY',
+      'lpInterestTokenL',
+      'lpInterestTokenLAsX',
+      'lpInterestTokenLAsY',
+      'protocolFeesTokenX',
+      'protocolFeesTokenY',
+      'protocolFeesTokenL',
+      'protocolFeesTokenLAsX',
+      'protocolFeesTokenLAsY',
+      'initialLendingFeesTokenX',
+      'initialLendingFeesTokenY',
+      'initialLendingFeesTokenL',
+      'initialLendingFeesTokenLAsX',
+      'initialLendingFeesTokenLAsY',
+      'penaltiesTokenL',
+      'penaltiesTokenLAsX',
+      'penaltiesTokenLAsY',
+    ] as const
+    expect(FEE_COLUMNS).toHaveLength(29)
+    for (const column of FEE_COLUMNS) {
+      expect(pool[column].toString()).toBe('0')
+    }
+  })
+})
+
+describe('createDefaultPoolDayData', () => {
+  it('initializes a zeroed pool day data record', () => {
+    const dayData = createDefaultPoolDayData('0xpool-19000', '0xpool', 19000)
+    expect(dayData.id).toBe('0xpool-19000')
+    expect(dayData.pool_id).toBe('0xpool')
+    expect(dayData.date).toBe(19000)
+    expect(dayData.txCount).toBe(0)
+    expect(dayData.swapCount).toBe(0)
+    expect(dayData.volumeTokenX.toString()).toBe('0')
+    expect(dayData.volumeTokenY.toString()).toBe('0')
+    const FEE_COLUMNS = [
+      'swapFeesTokenX',
+      'swapFeesTokenY',
+      'swapFeesTokenL',
+      'grossInterestTokenX',
+      'grossInterestTokenY',
+      'grossInterestTokenL',
+      'grossInterestTokenLAsX',
+      'grossInterestTokenLAsY',
+      'protocolInterestTokenX',
+      'protocolInterestTokenY',
+      'protocolInterestTokenL',
+      'protocolInterestTokenLAsX',
+      'protocolInterestTokenLAsY',
+      'lpInterestTokenL',
+      'lpInterestTokenLAsX',
+      'lpInterestTokenLAsY',
+      'protocolFeesTokenX',
+      'protocolFeesTokenY',
+      'protocolFeesTokenL',
+      'protocolFeesTokenLAsX',
+      'protocolFeesTokenLAsY',
+      'initialLendingFeesTokenX',
+      'initialLendingFeesTokenY',
+      'initialLendingFeesTokenL',
+      'initialLendingFeesTokenLAsX',
+      'initialLendingFeesTokenLAsY',
+      'penaltiesTokenL',
+      'penaltiesTokenLAsX',
+      'penaltiesTokenLAsY',
+    ] as const
+    expect(FEE_COLUMNS).toHaveLength(29)
+    for (const column of FEE_COLUMNS) {
+      expect(dayData[column].toString()).toBe('0')
+    }
   })
 })
 

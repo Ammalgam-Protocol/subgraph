@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 
-import { ZERO_BD } from '../../src/utils/math'
 import { createDefaultToken } from '../../src/utils/token'
 
 describe('createDefaultToken', () => {
@@ -14,7 +13,7 @@ describe('createDefaultToken', () => {
       decimals: 18,
       poolCount: 0,
       txCount: 0,
-      volume: ZERO_BD,
+      volume: 0n,
       whitelistPoolIds: [],
     })
   })

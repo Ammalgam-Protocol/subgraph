@@ -10,3 +10,13 @@ export const BORROW_Y = 5
 export const DEFAULT_TOKEN_BALANCES: bigint[] = [0n, 0n, 0n, 0n, 0n, 0n]
 
 export const ADDRESS_ZERO = '0x0000000000000000000000000000000000000000'
+
+// ref: github.com/Ammalgam-Protocol/core-v1/blob/master/contracts/libraries/constants.sol
+export const INITIAL_LENDING_FEE_BIPS = 5n
+
+// ref: github.com/Ammalgam-Protocol/core-v1/blob/master/contracts/libraries/Interest.sol
+export const LENDING_FEE_RATE = 10n
+
+export const BIPS = 10000n
+
+export const DAY_SECONDS = 86400

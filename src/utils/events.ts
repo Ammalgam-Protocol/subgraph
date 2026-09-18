@@ -1,6 +1,6 @@
 import { getEventId } from './id'
 
-type EventHeaderSource = {
+export type EventHeaderSource = {
   chainId: number
   logIndex: number
   block: { number: number; timestamp: number }

@@ -1,6 +1,13 @@
 import { BigDecimal } from 'envio'
 
-import { BORROW_L, DEPOSIT_L, DEPOSIT_X, DEPOSIT_Y } from './constants'
+import {
+  BIPS,
+  BORROW_L,
+  DEPOSIT_L,
+  DEPOSIT_X,
+  DEPOSIT_Y,
+  INITIAL_LENDING_FEE_BIPS,
+} from './constants'
 
 export const ZERO_BD = new BigDecimal(0)
 export const ONE_BD = new BigDecimal(1)
@@ -38,9 +45,24 @@ export function convertYToL(amountY: bigint, reserveY: bigint, activeLiquidity: 
   return (amountY * activeLiquidity) / reserveY
 }
 
+export function convertLToXAndY(
+  amountL: bigint,
+  reserveX: bigint,
+  reserveY: bigint,
+  activeLiquidity: bigint,
+): { x: bigint; y: bigint } {
+  if (activeLiquidity === 0n) return { x: 0n, y: 0n }
+  return { x: (amountL * reserveX) / activeLiquidity, y: (amountL * reserveY) / activeLiquidity }
+}
+
 export function mulDiv(a: bigint, b: bigint, denominator: bigint): bigint {
   if (denominator === 0n) return 0n
   return (a * b) / denominator
+}
+
+export function mulDivCeil(a: bigint, b: bigint, denominator: bigint): bigint {
+  if (denominator === 0n) return 0n
+  return (a * b + denominator - 1n) / denominator
 }
 
 // ERC4626 share->asset conversion, floor (Convert.toAssets with !ROUNDING_UP).
@@ -76,6 +98,120 @@ export function depletionAdjustedActiveLiquidity(
   return isqrt(reserveAdjustment(reserveX, missingX) * reserveAdjustment(reserveY, missingY))
 }
 
+export function swapFeeGrowth(
+  preX: bigint,
+  preY: bigint,
+  postX: bigint,
+  postY: bigint,
+  missingX: bigint,
+  missingY: bigint,
+): bigint {
+  const activeBefore = depletionAdjustedActiveLiquidity(preX, preY, missingX, missingY)
+  const activeAfter = depletionAdjustedActiveLiquidity(postX, postY, missingX, missingY)
+  const growth = activeAfter - activeBefore
+  return growth > 0n ? growth : 0n
+}
+
+export function missingAssets(
+  borrowX: bigint,
+  depositX: bigint,
+  borrowY: bigint,
+  depositY: bigint,
+): { missingX: bigint; missingY: bigint } {
+  return {
+    missingX: borrowX > depositX ? borrowX - depositX : 0n,
+    missingY: borrowY > depositY ? borrowY - depositY : 0n,
+  }
+}
+
+// depositL = depletion-adjusted active liquidity + borrowL
+export function calculateDepositLiquidityAssets(
+  reserveX: bigint,
+  reserveY: bigint,
+  depositX: bigint,
+  depositY: bigint,
+  borrowL: bigint,
+  borrowX: bigint,
+  borrowY: bigint,
+): bigint {
+  const { missingX, missingY } = missingAssets(borrowX, depositX, borrowY, depositY)
+  return depletionAdjustedActiveLiquidity(reserveX, reserveY, missingX, missingY) + borrowL
+}
+
+export function splitSwapFee(
+  amountXIn: bigint,
+  amountYIn: bigint,
+  amountXOut: bigint,
+  amountYOut: bigint,
+  reserveXBefore: bigint,
+  reserveYBefore: bigint,
+  missingX: bigint,
+  missingY: bigint,
+): { feeAmountX: bigint; feeAmountY: bigint } | undefined {
+  if (amountXIn === 0n && amountYIn === 0n) return undefined
+
+  const isTwoSided = amountXIn > 0n && amountYIn > 0n
+  const isAmountXInLarger = amountXIn >= amountYIn
+  const largerAmountIn = isAmountXInLarger ? amountXIn : amountYIn
+  const otherAmountIn = isAmountXInLarger ? amountYIn : amountXIn
+  const isSingleXInput = amountXIn > 0n && amountYIn === 0n
+  const inputReserve = isSingleXInput ? reserveXBefore : reserveYBefore
+  const oppositeReserve = isSingleXInput ? reserveYBefore : reserveXBefore
+  const sameTokenOutput = isSingleXInput ? amountXOut : amountYOut
+  const oppositeOutput = isSingleXInput ? amountYOut : amountXOut
+  const oppositeReserveAfter = oppositeReserve - oppositeOutput
+  const directMinimum =
+    !isTwoSided && oppositeReserveAfter > 0n
+      ? sameTokenOutput + mulDivCeil(inputReserve, oppositeOutput, oppositeReserveAfter)
+      : undefined
+
+  const invariantBefore =
+    reserveAdjustment(reserveXBefore, missingX) * reserveAdjustment(reserveYBefore, missingY)
+  const passesFeeFreeInvariant = (candidate: bigint): boolean => {
+    const proportionalAmountIn = mulDivCeil(otherAmountIn, candidate, largerAmountIn)
+    const candidateAmountXIn = isAmountXInLarger ? candidate : proportionalAmountIn
+    const candidateAmountYIn = isAmountXInLarger ? proportionalAmountIn : candidate
+    const reserveXAfter = reserveXBefore + candidateAmountXIn - amountXOut
+    const reserveYAfter = reserveYBefore + candidateAmountYIn - amountYOut
+    return (
+      reserveAdjustment(reserveXAfter, missingX) * reserveAdjustment(reserveYAfter, missingY) >=
+      invariantBefore
+    )
+  }
+
+  let minimumInput: bigint
+  if (
+    directMinimum !== undefined &&
+    directMinimum <= largerAmountIn &&
+    passesFeeFreeInvariant(directMinimum) &&
+    (directMinimum === 0n || !passesFeeFreeInvariant(directMinimum - 1n))
+  ) {
+    minimumInput = directMinimum
+  } else {
+    if (!passesFeeFreeInvariant(largerAmountIn)) return undefined
+
+    let lower = 0n
+    let upper = largerAmountIn
+    while (lower < upper) {
+      const midpoint = (lower + upper) / 2n
+      if (passesFeeFreeInvariant(midpoint)) {
+        upper = midpoint
+      } else {
+        lower = midpoint + 1n
+      }
+    }
+    minimumInput = lower
+  }
+
+  const proportionalMinimumInput = mulDivCeil(otherAmountIn, minimumInput, largerAmountIn)
+  const minimumAmountXIn = isAmountXInLarger ? minimumInput : proportionalMinimumInput
+  const minimumAmountYIn = isAmountXInLarger ? proportionalMinimumInput : minimumInput
+  return {
+    feeAmountX: amountXIn - minimumAmountXIn,
+    feeAmountY: amountYIn - minimumAmountYIn,
+  }
+}
+
 // Signed L-denominated principal contribution of an asset delta.
 export function principalContribution(
   tokenType: number,
@@ -88,4 +224,12 @@ export function principalContribution(
   if (tokenType === DEPOSIT_X) return convertXToL(assets, pool.reserveX, activeLiquidity)
   if (tokenType === DEPOSIT_Y) return convertYToL(assets, pool.reserveY, activeLiquidity)
   return 0n
+}
+
+export function splitLendingFee(
+  amount: bigint,
+): { principal: bigint; lendingFee: bigint } | undefined {
+  const principal = (amount * BIPS) / (BIPS + INITIAL_LENDING_FEE_BIPS)
+  const lendingFee = mulDivCeil(principal, INITIAL_LENDING_FEE_BIPS, BIPS)
+  return principal + lendingFee === amount ? { principal, lendingFee } : undefined
 }

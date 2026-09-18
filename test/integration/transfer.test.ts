@@ -1,7 +1,7 @@
 import { createTestIndexer } from 'envio'
 import { describe, expect, it } from 'vitest'
 
-import { DEPOSIT_X } from '../../src/utils/constants'
+import { BORROW_Y } from '../../src/utils/constants'
 import { getEventId, getPositionId, scopedId } from '../../src/utils/id'
 import {
   LENDING_ACTIVITY,
@@ -16,7 +16,7 @@ const CHAIN_ID = 11155111
 const REAL_PAIR_ID = scopedId(CHAIN_ID, REAL_PAIR)
 
 describe.skipIf(!HAS_TOKEN)('Sepolia transfer-stream reconstruction', () => {
-  it('wallet-to-wallet depositX transfer moves shares exactly (the motivating gap)', async () => {
+  it('wallet-to-wallet borrowY transfer moves shares exactly (the motivating gap)', async () => {
     const senderId = scopedId(CHAIN_ID, MANUAL_TRANSFER_TX.sender)
     const receiverId = scopedId(CHAIN_ID, MANUAL_TRANSFER_TX.receiver)
     const senderPositionId = getPositionId(senderId, REAL_PAIR_ID)
@@ -36,12 +36,9 @@ describe.skipIf(!HAS_TOKEN)('Sepolia transfer-stream reconstruction', () => {
     const senderAfter = await after.Position.getOrThrow(senderPositionId)
     const receiverAfter = await after.Position.getOrThrow(receiverPositionId)
 
-    // Delta across the transfer block, not the raw balance: both sides carry real
-    // pre-existing history from genesis, so only the move's own effect is asserted.
-    expect(senderAfter.shares[DEPOSIT_X] - (senderBefore?.shares[DEPOSIT_X] ?? 0n)).toBe(
-      -MANUAL_TRANSFER_TX.shares,
-    )
-    expect(receiverAfter.shares[DEPOSIT_X] - (receiverBefore?.shares[DEPOSIT_X] ?? 0n)).toBe(
+    // Delta across the transfer block, not the raw balance
+    expect(senderAfter.shares[BORROW_Y] - (senderBefore?.shares[BORROW_Y] ?? 0n)).toBe(0n)
+    expect(receiverAfter.shares[BORROW_Y] - (receiverBefore?.shares[BORROW_Y] ?? 0n)).toBe(
       MANUAL_TRANSFER_TX.shares,
     )
 

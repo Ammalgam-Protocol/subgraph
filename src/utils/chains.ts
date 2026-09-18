@@ -55,6 +55,8 @@ const CHAIN_CONFIGS: Record<number, ChainConfig> = {
   },
 }
 
+export const SUPPORTED_CHAIN_IDS: number[] = Object.keys(CHAIN_CONFIGS).map(Number)
+
 export function getChainConfig(chainId: number): ChainConfig {
   const config = CHAIN_CONFIGS[chainId]
   if (!config) {

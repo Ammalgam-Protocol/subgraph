@@ -55,6 +55,23 @@ Core entities: `Token`, `LendingToken`, `Pool`, `User`, `Position`, plus one ent
 `Position` is one per (user, pool). Reverse relations use `@derivedFrom` (never materialized reverse
 arrays), which also makes cross-event ordering irrelevant.
 
+## Fee write path
+
+`accrueFees(context, pool, timestamp, deltas)` in `src/handlers/shared.ts` is the one writer of
+every fee, volume and count column, on both `Pool` (cumulative) and that pool's `PoolDayData` row
+(same column names, one row per UTC day). No other code sets these columns directly.
+
+Three spine rules govern how event handlers feed it:
+
+1. **Exact stash.** Every mint or burn Transfer consumes the exact assets and shares its
+   preceding action log carried (`LendingToken.pendingAssets` / `pendingShares`), not a floor
+   reconstruction.
+2. **Re-derive on every input write.** `totalAssets[DEPOSIT_L]` is recomputed from reserves and
+   the other five totals on every write to any of them, which is how the contract defines it.
+3. **L fee back-out.** The pair-sender L fee mint re-derives `depositL`, subtracts its own
+   `event.assets`, and then its Transfer adds the exact assets back, mirroring
+   `mintProtocolFees(..., true)`: it dilutes shares, it does not grow the total.
+
 ## Accounting spine (the key idea)
 
 Positions are accounted from the ERC-20 `Transfer` stream, **not** from the semantic events. Two

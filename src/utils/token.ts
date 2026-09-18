@@ -1,4 +1,4 @@
-import { ZERO_BD } from './math'
+import { ZERO_BI } from './constants'
 
 export function createDefaultToken(
   id: string,
@@ -11,7 +11,7 @@ export function createDefaultToken(
     decimals: metadata.decimals,
     poolCount: 0,
     txCount: 0,
-    volume: ZERO_BD,
+    volume: ZERO_BI,
     whitelistPoolIds: [] as string[],
   }
 }

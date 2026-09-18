@@ -1,7 +1,6 @@
-// Entity IDs are namespaced by chainId so the same on-chain address (pool, token,
-// user) on different chains never collides into one entity. Raw addresses are still
-// used for contract registration, effect inputs, and config lookups — only the
-// stored entity id / foreign keys are scoped.
+// Entity IDs are namespaced by chainId so the same address on two chains never collides
+// into one entity. Only stored ids and `_id` foreign keys are scoped; contract
+// registration, effect inputs and config lookups still use the raw address.
 export function scopedId(chainId: number, address: string): string {
   return `${chainId}-${address}`
 }

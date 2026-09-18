@@ -1,17 +1,24 @@
 import { BigDecimal } from 'envio'
 import { describe, expect, it } from 'vitest'
 import {
+  calculateDepositLiquidityAssets,
+  convertLToXAndY,
   convertTokenToDecimal,
   convertXToL,
   convertYToL,
   depletionAdjustedActiveLiquidity,
   exponentToBigDecimal,
   isqrt,
+  missingAssets,
   mulDiv,
+  mulDivCeil,
   ONE_BD,
   principalContribution,
   reserveAdjustment,
   safeDiv,
+  splitLendingFee,
+  splitSwapFee,
+  swapFeeGrowth,
   toAssets,
   ZERO_BD,
 } from '../../src/utils/math'
@@ -66,6 +73,19 @@ describe('mulDiv', () => {
   it('returns 0 on zero denominator', () => expect(mulDiv(7n, 3n, 0n)).toBe(0n))
 })
 
+describe('mulDivCeil', () => {
+  it('rounds up on a remainder', () => expect(mulDivCeil(7n, 3n, 2n)).toBe(11n))
+  it('leaves an exact quotient alone', () => expect(mulDivCeil(7n, 3n, 3n)).toBe(7n))
+  it('returns 0 for a zero product', () => expect(mulDivCeil(0n, 3n, 2n)).toBe(0n))
+  it('returns 0 on zero denominator', () => expect(mulDivCeil(7n, 3n, 0n)).toBe(0n))
+  it('protocol interest rate (LENDING_FEE_RATE=10 of 100) at 0, 1 wei and uint112 max', () => {
+    expect(mulDivCeil(0n, 10n, 100n)).toBe(0n)
+    expect(mulDivCeil(1n, 10n, 100n)).toBe(1n)
+    const uint112Max = 2n ** 112n - 1n
+    expect(mulDivCeil(uint112Max, 10n, 100n)).toBe(519229685853482762853049632922010n)
+  })
+})
+
 describe('toAssets', () => {
   it('returns shares 1:1 when totalShares is 0', () => expect(toAssets(5n, 100n, 0n)).toBe(5n))
   it('converts by rate with floor', () => expect(toAssets(3n, 10n, 4n)).toBe(7n))
@@ -114,4 +134,149 @@ describe('principalContribution', () => {
   it('BORROW_Y is 0 (preserved quirk)', () => expect(principalContribution(5, 100n, pool)).toBe(0n))
   it('DEPOSIT_X with zero reserve returns 0', () =>
     expect(principalContribution(1, 100n, { ...pool, reserveX: 0n })).toBe(0n))
+})
+
+describe('splitLendingFee', () => {
+  it('recovers principal and fee from a post-fee amount', () => {
+    expect(splitLendingFee(100050n)).toEqual({ principal: 100000n, lendingFee: 50n })
+  })
+
+  it('rounds the fee up on non-exact multiples', () => {
+    // principal 99: ceil(99 * 5 / 10000) = 1, so amount 100 splits as 99 + 1.
+    expect(splitLendingFee(100n)).toEqual({ principal: 99n, lendingFee: 1n })
+    expect(splitLendingFee(2n)).toEqual({ principal: 1n, lendingFee: 1n })
+  })
+
+  it('handles zero', () => {
+    expect(splitLendingFee(0n)).toEqual({ principal: 0n, lendingFee: 0n })
+  })
+
+  it('returns undefined when no integer principal solves the equation', () => {
+    // amount 1 is unreachable: principal 0 gives 0, principal 1 gives 2.
+    expect(splitLendingFee(1n)).toBeUndefined()
+  })
+})
+
+describe('convertLToXAndY', () => {
+  it('converts L to X and Y at the reserve ratio', () => {
+    expect(convertLToXAndY(100n, 500n, 500n, 200n)).toEqual({ x: 250n, y: 250n })
+  })
+  it('returns 0/0 when activeLiquidity is 0', () => {
+    expect(convertLToXAndY(100n, 500n, 500n, 0n)).toEqual({ x: 0n, y: 0n })
+  })
+})
+
+describe('missingAssets', () => {
+  it('returns 0 on a leg where deposits cover borrows', () => {
+    expect(missingAssets(80n, 100n, 90n, 50n)).toEqual({ missingX: 0n, missingY: 40n })
+  })
+  it('returns 0/0 when both legs are fully covered', () => {
+    expect(missingAssets(50n, 100n, 20n, 100n)).toEqual({ missingX: 0n, missingY: 0n })
+  })
+})
+
+describe('swapFeeGrowth', () => {
+  it('single-sided: only X moves', () =>
+    // isqrt(1000*1000)=1000, isqrt(1010*1000)=1004
+    expect(swapFeeGrowth(1000n, 1000n, 1010n, 1000n, 0n, 0n)).toBe(4n))
+
+  it('clamps to 0 when active liquidity would fall (defensive, never observed in practice)', () =>
+    expect(swapFeeGrowth(1000n, 1000n, 900n, 900n, 0n, 0n)).toBe(0n))
+
+  it('two-sided: both X and Y move', () =>
+    // isqrt(1000*1000)=1000, isqrt(1010*1005)=1007
+    expect(swapFeeGrowth(1000n, 1000n, 1010n, 1005n, 0n, 0n)).toBe(7n))
+
+  it('depleted pre-state where the raw (unadjusted) growth would be negative', () => {
+    // Depletion fixture: X 96% depleted, 1000 X in. The unadjusted isqrt(postX*postY) - isqrt(preX*preY)
+    // is negative; the depletion-adjusted growth below stays positive, matching the contract's K basis.
+    const reserve = 10n ** 24n
+    const missingX = (96n * 10n ** 24n) / 100n
+    const amountIn = 10n ** 21n
+    const postX = reserve + amountIn
+    const postY = 975681147401029343610509n
+
+    const rawGrowth = isqrt(postX * postY) - isqrt(reserve * reserve)
+    expect(rawGrowth).toBeLessThan(0n)
+
+    const growth = swapFeeGrowth(reserve, reserve, postX, postY, missingX, 0n)
+    expect(growth).toBe(32724741893124811477n)
+  })
+})
+
+describe('calculateDepositLiquidityAssets', () => {
+  it('fee-less deposit stays in the depleted branch', () => {
+    // missingX = 99 - 2 = 97; 100*19=1900 < 97*20=1940 -> depleted: adjust(100,97)=60.
+    // depositL = isqrt(60*100) + borrowL(10) = 77 + 10.
+    expect(calculateDepositLiquidityAssets(100n, 100n, 2n, 100n, 10n, 99n, 50n)).toBe(87n)
+  })
+
+  it('deposits covering both sides leave missing at 0 on both legs', () => {
+    // borrowX(80) <= depositX(100) -> missingX=0; borrowY(90) > depositY(50) -> missingY=40.
+    // Neither leg is depleted at these reserves: isqrt(1000*1000) + borrowL(5) = 1005.
+    expect(calculateDepositLiquidityAssets(1000n, 1000n, 100n, 50n, 5n, 80n, 90n)).toBe(1005n)
+  })
+
+  it('fee-inclusive deposit crosses out of the depleted branch', () => {
+    // missingX = 99 - 7 = 92; 100*19=1900 >= 92*20=1840 -> not depleted: adjust(100,92)=100.
+    // depositL = isqrt(100*100) + borrowL(10) = 100 + 10.
+    expect(calculateDepositLiquidityAssets(100n, 100n, 7n, 100n, 10n, 99n, 50n)).toBe(110n)
+  })
+})
+
+describe('splitSwapFee', () => {
+  it('rejects swaps without an input token', () => {
+    expect(splitSwapFee(0n, 0n, 0n, 0n, 1000n, 1000n, 0n, 0n)).toBeUndefined()
+  })
+
+  it('uses the proof-checked direct minimum for one-sided inputs', () => {
+    expect(splitSwapFee(10n, 0n, 0n, 6n, 1000n, 1000n, 0n, 0n)).toEqual({
+      feeAmountX: 3n,
+      feeAmountY: 0n,
+    })
+    expect(splitSwapFee(0n, 10n, 6n, 0n, 1000n, 1000n, 0n, 0n)).toEqual({
+      feeAmountX: 0n,
+      feeAmountY: 3n,
+    })
+  })
+
+  it('accepts zero as the minimum for a zero-output swap', () => {
+    expect(splitSwapFee(10n, 0n, 0n, 0n, 1000n, 1000n, 0n, 0n)).toEqual({
+      feeAmountX: 10n,
+      feeAmountY: 0n,
+    })
+  })
+
+  it('bisects the depleted one-sided input when the direct minimum is not minimal', () => {
+    const scale = 10n ** 18n
+
+    expect(
+      splitSwapFee(10n * scale, 0n, 0n, scale, 1000n * scale, 1000n * scale, 960n * scale, 0n),
+    ).toEqual({
+      feeAmountX: 9959959959959959959n,
+      feeAmountY: 0n,
+    })
+  })
+
+  it('allocates two-sided fees along equal and asymmetric input rays', () => {
+    const scale = 10n ** 18n
+
+    expect(
+      splitSwapFee(15n * scale, 15n * scale, 0n, 20n * scale, 1000n * scale, 1000n * scale, 0n, 0n),
+    ).toEqual({
+      feeAmountX: 4950001249937503905n,
+      feeAmountY: 4950001249937503905n,
+    })
+    expect(
+      splitSwapFee(1n, scale, 0n, scale / 2n, 1000n * 10n ** 6n, 1000n * scale, 0n, 0n),
+    ).toEqual({
+      feeAmountX: 0n,
+      feeAmountY: 500000999999999000n,
+    })
+  })
+
+  it('rejects inputs that cannot restore the fee-free invariant', () => {
+    expect(splitSwapFee(1n, 0n, 0n, 2n, 1000n, 1000n, 0n, 0n)).toBeUndefined()
+    expect(splitSwapFee(1000n, 0n, 0n, 1000n, 1000n, 1000n, 0n, 0n)).toBeUndefined()
+  })
 })
