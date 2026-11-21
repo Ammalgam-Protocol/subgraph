@@ -1,6 +1,6 @@
 // config.yaml pins the chain's start_block and simulate drops events below it. Handler tests
 // number blocks relatively to express ordering, so offset them above that floor.
-export const TEST_START_BLOCK = 11185304
+export const TEST_START_BLOCK = 12167736
 
 export function testBlockNumber(offset: number): number {
   return TEST_START_BLOCK + offset

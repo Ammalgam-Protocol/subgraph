@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { lendingEventFields, transferEventFields } from '../../src/utils/events'
+import {
+  governanceEventFields,
+  lendingEventFields,
+  transferEventFields,
+} from '../../src/utils/events'
 import { getEventId } from '../../src/utils/id'
 
 const event = {
@@ -68,5 +72,43 @@ describe('transferEventFields', () => {
     })
     expect(fields.amount).toBe(110n)
     expect(fields.shares).toBe(100n)
+  })
+})
+
+describe('governanceEventFields', () => {
+  it('sets the header, nulls every optional field, then applies the given fields', () => {
+    expect(
+      governanceEventFields(event, {
+        kind: 'RoleGranted',
+        contract: '0xcontract',
+        fields: { role: '0xrole', account: '0xaccount', sender: '0xsender' },
+      }),
+    ).toEqual({
+      id: getEventId(11155111, '0xhash', 3),
+      hash: '0xhash',
+      logIndex: 3,
+      blockNumber: 10n,
+      timestamp: 100n,
+      kind: 'RoleGranted',
+      contract: '0xcontract',
+      operationId: undefined,
+      index: undefined,
+      target: undefined,
+      value: undefined,
+      data: undefined,
+      predecessor: undefined,
+      delay: undefined,
+      oldDuration: undefined,
+      newDuration: undefined,
+      role: '0xrole',
+      account: '0xaccount',
+      sender: '0xsender',
+      implementation: undefined,
+      by: undefined,
+      newOwner: undefined,
+      previousOwner: undefined,
+      feeTo: undefined,
+      feeToSetter: undefined,
+    })
   })
 })

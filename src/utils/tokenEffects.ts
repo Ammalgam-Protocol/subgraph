@@ -83,6 +83,27 @@ export async function resolveTokenDecimals(
   }
 }
 
+export async function readTokenMetadata(
+  address: string,
+  config: ChainConfig,
+  client: ReadOnlyClient,
+): Promise<{ metadata: { symbol: string; name: string; decimals: number }; hasError: boolean }> {
+  let hasError = false
+  const _client: ReadOnlyClient = {
+    readContract: (args) =>
+      client.readContract(args).catch((error) => {
+        hasError = true
+        throw error
+      }),
+  }
+  const [symbol, name, decimals] = await Promise.all([
+    resolveTokenSymbol(address, config, _client),
+    resolveTokenName(address, config, _client),
+    resolveTokenDecimals(address, config, _client),
+  ])
+  return { metadata: { symbol, name, decimals }, hasError }
+}
+
 // envio's effect dispatch loads this file through its own dynamic import, outside vitest's
 // instrumentation, so istanbul records no calls. factory.test.ts covers it end-to-end.
 /* istanbul ignore start */
@@ -100,16 +121,18 @@ export const fetchTokenMetadata = createEffect(
     rateLimit: false,
     cache: true,
   },
-  async ({ input }) => {
+  async ({ input, context }) => {
     const { chainId, address } = parseInput(input)
-    const config = getChainConfig(chainId)
-    const client = getClient(chainId)
-    const [symbol, name, decimals] = await Promise.all([
-      resolveTokenSymbol(address, config, client),
-      resolveTokenName(address, config, client),
-      resolveTokenDecimals(address, config, client),
-    ])
-    return { symbol, name, decimals }
+    const { metadata, hasError } = await readTokenMetadata(
+      address,
+      getChainConfig(chainId),
+      getClient(chainId),
+    )
+    if (hasError) {
+      context.cache = false
+      context.log.warn(`Token metadata read failed for ${address} on chain ${chainId}`)
+    }
+    return metadata
   },
 )
 /* istanbul ignore stop */

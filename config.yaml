@@ -15,6 +15,8 @@ contracts:
     events:
       - event: "LendingTokensCreated(address indexed pair, address depositL, address depositX, address depositY, address borrowL, address borrowX, address borrowY)"
       - event: "PairCreated(address indexed tokenX, address indexed tokenY, address pair, uint256 allPairsLength)"
+      - event: "NewFeeToSetter(address indexed feeToSetter)"
+      - event: "NewFeeTo(address indexed feeTo)"
 
   - name: AmmalgamPair
     handler: src/handlers/pair.ts
@@ -54,12 +56,51 @@ contracts:
       - event: "RepayLiquidity(address indexed sender, address indexed onBehalfOf, uint256 assets, uint256 shares)"
       - event: "Transfer(address indexed from, address indexed to, uint256 value)"
 
+  - name: TimelockController
+    events:
+      - event: "CallScheduled(bytes32 indexed id, uint256 indexed index, address target, uint256 value, bytes data, bytes32 predecessor, uint256 delay)"
+      - event: "CallExecuted(bytes32 indexed id, uint256 indexed index, address target, uint256 value, bytes data)"
+      - event: "MinDelayChange(uint256 oldDuration, uint256 newDuration)"
+      - event: "Cancelled(bytes32 indexed id)"
+      - event: "RoleGranted(bytes32 indexed role, address indexed account, address indexed sender)"
+      - event: "RoleRevoked(bytes32 indexed role, address indexed account, address indexed sender)"
+
+  - name: BeaconController
+    events:
+      - event: "RoleGranted(bytes32 indexed role, address indexed account, address indexed sender)"
+      - event: "RoleRevoked(bytes32 indexed role, address indexed account, address indexed sender)"
+      - event: "AllowedAdded(address indexed implementation, address indexed by)"
+      - event: "AllowedRemoved(address indexed implementation, address indexed by)"
+
+  - name: UpgradeableBeacon
+    events:
+      - event: "Upgraded(address indexed implementation)"
+
+  - name: SaturationAndGeometricTWAPState
+    events:
+      - event: "Upgraded(address indexed implementation)"
+      - event: "OwnershipTransferred(address indexed previousOwner, address indexed newOwner)"
+
+  - name: ProxyAdmin
+    events:
+      - event: "OwnershipTransferred(address indexed previousOwner, address indexed newOwner)"
+
 chains:
-  - id: 11155111 # Sepolia
-    start_block: 11185304
+  - id: 11155111  # Sepolia
+    start_block: 12167736
     contracts:
       - name: AmmalgamFactory
-        address: "0xbf3367206d684fbf4b27b56624a64d4933ee111d"
+        address: "0x923739b2bc46bb84bed1f9cb60e9d656917b3e9a"
+      - name: TimelockController
+        address: "0x6dc59cd3536a6ba3201885d7afde8709cdc1b617"
+      - name: BeaconController
+        address: "0x1c1690127847a8f4a8e699167e46b0f7068eb5a7"
+      - name: UpgradeableBeacon
+        address: "0x61b2345745e65dea5bfc7e003a6c9005b06b2a3f"
+      - name: SaturationAndGeometricTWAPState
+        address: "0x3942056802031419f73f3e9ae5a8960f8a20b87b"
+      - name: ProxyAdmin
+        address: "0x5a8dc641c92162fc91a5d8255617e0067e430fc1"
       - name: AmmalgamPair
       - name: ERC4626Deposit
       - name: ERC20DepositLiquidity

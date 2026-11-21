@@ -1,0 +1,12 @@
+allowBuilds:
+  '@ast-grep/cli': true
+  lefthook: true
+  esbuild: false
+
+overrides:
+  # envio pins express@4.19.2, force the patched 4.x line
+  express: 4.22.3
+  # express@4.22.3 depends on proxy-addr ~2.0.7
+  proxy-addr: 2.0.8
+  # vite pulls esbuild <0.28.1
+  esbuild: ^0.28.1

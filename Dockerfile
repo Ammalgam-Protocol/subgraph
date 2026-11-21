@@ -1,4 +1,4 @@
-FROM node:24.3.0-slim
+FROM node:24.22.1-slim
 
 # psql is needed for dumping and restoring the initial effects cache.
 # ca-certificates: the -slim base ships no CA bundle, so the native hypersync-client
@@ -9,12 +9,13 @@ RUN apt-get update && \
 
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
-RUN npm install -g pnpm@10.32.1
+RUN npm install -g pnpm@12.15.0
 
 WORKDIR /envio-indexer
 
 COPY ./package.json ./package.json
 COPY ./pnpm-lock.yaml ./pnpm-lock.yaml
+COPY ./pnpm-workspace.yaml ./pnpm-workspace.yaml
 
 RUN pnpm install --frozen-lockfile
 
