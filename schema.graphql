@@ -180,6 +180,10 @@ type Position {
   transfers: [Transfer!]! @derivedFrom(field: "senderPosition")
   receivedCount: Int!
   receives: [Transfer!]! @derivedFrom(field: "receiverPosition")
+  pendingTxHash: String
+  pendingSeizedAssets: [BigInt!]
+  pendingRepaidAssets: [BigInt!]
+  pendingBadDebtAssets: [BigInt!]
 }
 
 type Deposit {
@@ -293,6 +297,12 @@ type Sync {
   reserveY: BigInt!
 }
 
+enum LiquidationKind {
+  HARD
+  SATURATION
+  LEVERAGE
+}
+
 type Liquidate {
   id: ID!
   hash: String!
@@ -302,14 +312,28 @@ type Liquidate {
   pool: Pool!
   borrower: User!
   liquidator: User!
-  seizedLAssets: BigInt!
-  seizedXAssets: BigInt!
-  seizedYAssets: BigInt!
-  repayXAssets: BigInt!
-  repayYAssets: BigInt!
+  liquidatorContract: String
+  recipient: User!
   actualRepaidXAssets: BigInt!
   actualRepaidYAssets: BigInt!
   liquidationType: BigInt!
+  kind: LiquidationKind!
+  repaidDebtLAssets: BigInt!
+  repaidDebtXAssets: BigInt!
+  repaidDebtYAssets: BigInt!
+  repaidDebtLAsX: BigInt!
+  repaidDebtLAsY: BigInt!
+  seizedLAssets: BigInt!
+  seizedXAssets: BigInt!
+  seizedYAssets: BigInt!
+  seizedLAsX: BigInt!
+  seizedLAsY: BigInt!
+  reserveX: BigInt!
+  reserveY: BigInt!
+  badDebtLAssets: BigInt!
+  badDebtXAssets: BigInt!
+  badDebtYAssets: BigInt!
+  premiumBips: Int
 }
 
 type InterestAccrued {

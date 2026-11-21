@@ -10,7 +10,8 @@ import {
   DEPOSIT_Y,
   LENDING_FEE_RATE,
 } from '../utils/constants'
-import { getEventId, scopedId } from '../utils/id'
+import { getEventId, getPositionId, scopedId } from '../utils/id'
+import { liquidationKind, liquidationPremiumFields } from '../utils/liquidation'
 import {
   calculateDepositLiquidityAssets,
   convertLToXAndY,
@@ -22,6 +23,12 @@ import {
   swapFeeGrowth,
 } from '../utils/math'
 import { poolPriceFields } from '../utils/pool'
+import {
+  addPendingFields,
+  clearPendingFields,
+  getLendingTokenIndex,
+  getPendingFields,
+} from '../utils/position'
 import { accrueFees, getOrCreateUser } from './shared'
 
 indexer.onEvent({ contract: 'AmmalgamPair', event: 'Sync' }, async ({ event, context }) => {
@@ -163,6 +170,14 @@ indexer.onEvent({ contract: 'AmmalgamPair', event: 'Swap' }, async ({ event, con
 
 indexer.onEvent({ contract: 'AmmalgamPair', event: 'Liquidate' }, async ({ event, context }) => {
   const poolId = scopedId(event.chainId, event.srcAddress)
+  const kind = liquidationKind(event.params.liquidationType)
+  if (!kind) {
+    context.log.warn(
+      `Liquidate with unsupported type ${event.params.liquidationType} on chain ${event.chainId} pool ${poolId} tx ${event.transaction.hash}`,
+    )
+    return
+  }
+
   const pool = await context.Pool.get(poolId)
   if (!pool) return
 
@@ -176,8 +191,33 @@ indexer.onEvent({ contract: 'AmmalgamPair', event: 'Liquidate' }, async ({ event
   const borrower = await getOrCreateUser(context, borrowerId)
   context.User.set({ ...borrower, liquidationCount: borrower.liquidationCount + 1 })
 
-  const liquidatorId = scopedId(event.chainId, event.params.to)
+  const recipient = event.params.to.toLowerCase()
+  // transaction.from is the account that paid for the liquidation; `to` only receives the shares.
+  const liquidatorId = scopedId(event.chainId, (event.transaction.from ?? recipient).toLowerCase())
   context.User.set(await getOrCreateUser(context, liquidatorId))
+  const recipientId = scopedId(event.chainId, recipient)
+  if (recipientId !== liquidatorId) context.User.set(await getOrCreateUser(context, recipientId))
+
+  const target = event.transaction.to?.toLowerCase()
+  const liquidatorContract =
+    target && target !== event.srcAddress.toLowerCase() ? target : undefined
+
+  const borrowerPosition = await context.Position.get(getPositionId(borrowerId, poolId))
+  const pending = getPendingFields(borrowerPosition, event.transaction.hash)
+  if (borrowerPosition) context.Position.set(clearPendingFields(borrowerPosition))
+
+  const { missingX, missingY } = missingAssets(
+    pool.totalAssets[BORROW_X] ?? 0n,
+    pool.totalAssets[DEPOSIT_X] ?? 0n,
+    pool.totalAssets[BORROW_Y] ?? 0n,
+    pool.totalAssets[DEPOSIT_Y] ?? 0n,
+  )
+  const activeLiquidity = depletionAdjustedActiveLiquidity(
+    pool.reserveX,
+    pool.reserveY,
+    missingX,
+    missingY,
+  )
 
   context.Liquidate.set({
     id: getEventId(event.chainId, event.transaction.hash, event.logIndex),
@@ -188,14 +228,30 @@ indexer.onEvent({ contract: 'AmmalgamPair', event: 'Liquidate' }, async ({ event
     pool_id: poolId,
     borrower_id: borrowerId,
     liquidator_id: liquidatorId,
-    seizedLAssets: event.params.seizedLAssets,
-    seizedXAssets: event.params.seizedXAssets,
-    seizedYAssets: event.params.seizedYAssets,
-    repayXAssets: event.params.repayXAssets,
-    repayYAssets: event.params.repayYAssets,
+    liquidatorContract,
+    recipient_id: recipientId,
     actualRepaidXAssets: event.params.actualRepaidXAssets,
     actualRepaidYAssets: event.params.actualRepaidYAssets,
     liquidationType: event.params.liquidationType,
+    kind,
+    repaidDebtLAssets: pending.repaid[0],
+    repaidDebtXAssets: pending.repaid[1],
+    repaidDebtYAssets: pending.repaid[2],
+    seizedLAssets: pending.seized[0],
+    seizedXAssets: pending.seized[1],
+    seizedYAssets: pending.seized[2],
+    reserveX: pool.reserveX,
+    reserveY: pool.reserveY,
+    badDebtLAssets: pending.badDebt[0],
+    badDebtXAssets: pending.badDebt[1],
+    badDebtYAssets: pending.badDebt[2],
+    ...liquidationPremiumFields({
+      seized: pending.seized,
+      repaid: pending.repaid,
+      reserveX: pool.reserveX,
+      reserveY: pool.reserveY,
+      activeLiquidity,
+    }),
   })
 })
 
@@ -363,6 +419,15 @@ indexer.onEvent({ contract: 'AmmalgamPair', event: 'BurnBadDebt' }, async ({ eve
 
   const borrowerId = scopedId(event.chainId, event.params.borrower)
   context.User.set(await getOrCreateUser(context, borrowerId))
+
+  const borrowerPosition = await context.Position.get(getPositionId(borrowerId, poolId))
+  if (borrowerPosition && tokenType >= BORROW_L) {
+    const index = getLendingTokenIndex(tokenType)
+    const assets = event.params.badDebtAssets
+    const hash = event.transaction.hash
+    const stashed = addPendingFields(borrowerPosition, hash, 'pendingBadDebtAssets', index, assets)
+    context.Position.set(addPendingFields(stashed, hash, 'pendingRepaidAssets', index, -assets))
+  }
 
   context.BurnBadDebt.set({
     id: getEventId(event.chainId, event.transaction.hash, event.logIndex),

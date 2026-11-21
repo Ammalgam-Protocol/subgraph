@@ -38,6 +38,6 @@
     }
   },
   "files": {
-    "includes": ["**", "!generated", "!node_modules", "!.envio", "!coverage", "!.claude"]
+    "includes": ["*", "src/**", "test/**", "!generated", "!node_modules", "!.envio", "!coverage"]
   }
 }

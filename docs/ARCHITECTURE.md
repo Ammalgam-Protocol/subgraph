@@ -84,8 +84,8 @@ write paths, both in `src/handlers/shared.ts`:
   `shares` / `assets` / `principal` and pool totals, classifying each transfer as mint (`from=0x0`),
   burn (`to=0x0`), or move.
 
-This keeps a single source of truth for who holds what, with no peripheral-router rewrite
-heuristics.
+This keeps a single source of truth for who holds what. Attribution reads the same `Transfer`
+stream and never an address list.
 
 ## Testing
 

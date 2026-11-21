@@ -500,6 +500,10 @@ describe('cross-handler invariants and sequences', () => {
       repayCount: 0,
       transferredCount: 0,
       receivedCount: 0,
+      pendingTxHash: undefined,
+      pendingSeizedAssets: undefined,
+      pendingRepaidAssets: undefined,
+      pendingBadDebtAssets: undefined,
     })
     await indexer.process({
       chains: { 11155111: { simulate: [debtTransfer(BOB, ZERO, 100n, 0)] } },
@@ -534,6 +538,10 @@ describe('cross-handler invariants and sequences', () => {
       repayCount: 0,
       transferredCount: 0,
       receivedCount: 0,
+      pendingTxHash: undefined,
+      pendingSeizedAssets: undefined,
+      pendingRepaidAssets: undefined,
+      pendingBadDebtAssets: undefined,
     })
     await indexer.process({
       chains: {

@@ -8,6 +8,7 @@ export const BORROW_X = 4
 export const BORROW_Y = 5
 
 export const DEFAULT_TOKEN_BALANCES: bigint[] = [0n, 0n, 0n, 0n, 0n, 0n]
+export const DEFAULT_LENDING_ASSETS: readonly [bigint, bigint, bigint] = [0n, 0n, 0n]
 
 export const ADDRESS_ZERO = '0x0000000000000000000000000000000000000000'
 

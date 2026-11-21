@@ -23,7 +23,12 @@ import {
   toAssets,
 } from '../utils/math'
 import { createDefaultPoolDayData } from '../utils/pool'
-import { createDefaultPosition } from '../utils/position'
+import {
+  addPendingFields,
+  createDefaultPosition,
+  getLendingTokenIndex,
+  type PendingField,
+} from '../utils/position'
 import { createDefaultUser } from '../utils/user'
 
 // Minimal structural event types: any decoded Envio event satisfies these.
@@ -42,6 +47,8 @@ type TransferEvent = LoadEvent &
     logIndex: number
     params: { from: string; to: string; value: bigint }
   }
+
+type PendingWrite = { field: PendingField; amount: bigint }
 
 type PoolAction = 'deposit' | 'withdraw' | 'borrow' | 'repay'
 type TransferType = 'transferred' | 'received'
@@ -159,6 +166,7 @@ async function applyPositionDelta(
   sharesDelta: bigint,
   principalDelta: bigint,
   transferType?: TransferType,
+  pending?: PendingWrite,
 ): Promise<number> {
   let user = await getOrCreateUser(context, userId)
 
@@ -190,23 +198,35 @@ async function applyPositionDelta(
 
   const counterField = transferType ? (`${transferType}Count` as const) : undefined
   context.User.set(counterField ? { ...user, [counterField]: user[counterField] + 1 } : user)
-  context.Position.set({
+  const updated = {
     ...position,
     shares,
     assets,
     principal: position.principal + principalDelta,
     ...(counterField ? { [counterField]: position[counterField] + 1 } : {}),
-  })
+  }
+  context.Position.set(
+    pending
+      ? addPendingFields(
+          updated,
+          event.transaction.hash,
+          pending.field,
+          getLendingTokenIndex(tokenType),
+          pending.amount,
+        )
+      : updated,
+  )
   return newPositions
 }
 
+// `matched` is true when the assets came from the Deposit/Repay/Borrow action stash.
 function getAssets(
   context: EvmOnEventContext,
   lendingToken: LendingToken,
   tokenType: number,
   value: bigint,
   pool: Pool,
-): bigint {
+): { assets: bigint; matched: boolean } {
   if (lendingToken.pendingAssets !== undefined && lendingToken.pendingShares === value) {
     const assets = lendingToken.pendingAssets
     context.LendingToken.set({
@@ -214,11 +234,14 @@ function getAssets(
       pendingAssets: undefined,
       pendingShares: undefined,
     })
-    return assets
+    return { assets, matched: true }
   }
 
   context.log.warn(`Direct transfer of ${value} shares on lending token ${lendingToken.id}`)
-  return toAssets(value, pool.totalAssets[tokenType] ?? 0n, pool.totalShares[tokenType] ?? 0n)
+  return {
+    assets: toAssets(value, pool.totalAssets[tokenType] ?? 0n, pool.totalShares[tokenType] ?? 0n),
+    matched: false,
+  }
 }
 
 function updateAssets(pool: Pool): bigint[] {
@@ -252,7 +275,7 @@ export async function handleLendingTokenTransfer(event: TransferEvent, context: 
   const receiverId = scopedId(event.chainId, event.params.to)
 
   if (isMint) {
-    const assets = getAssets(context, lendingToken, tokenType, value, pool)
+    const { assets } = getAssets(context, lendingToken, tokenType, value, pool)
     const principalDelta = principalContribution(tokenType, assets, pool)
     let updatedPool = {
       ...pool,
@@ -276,7 +299,7 @@ export async function handleLendingTokenTransfer(event: TransferEvent, context: 
   }
 
   if (isBurn) {
-    const assets = getAssets(context, lendingToken, tokenType, value, pool)
+    const { assets, matched } = getAssets(context, lendingToken, tokenType, value, pool)
     const principalDelta = principalContribution(tokenType, assets, pool)
     let updatedPool = {
       ...pool,
@@ -294,6 +317,10 @@ export async function handleLendingTokenTransfer(event: TransferEvent, context: 
       tokenType,
       -value,
       -principalDelta,
+      undefined,
+      matched && tokenType >= BORROW_L
+        ? { field: 'pendingRepaidAssets', amount: assets }
+        : undefined,
     )
     context.Pool.set({ ...updatedPool, positionCount: updatedPool.positionCount + newPositions })
     return
@@ -320,6 +347,7 @@ export async function handleLendingTokenTransfer(event: TransferEvent, context: 
     -value,
     -principalDelta,
     senderCounter,
+    tokenType <= DEPOSIT_Y ? { field: 'pendingSeizedAssets', amount: floorAssets } : undefined,
   )
   const newFromReceiver = await applyPositionDelta(
     context,

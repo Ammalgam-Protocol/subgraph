@@ -134,6 +134,10 @@ describe('lending-token Transfer accounting', () => {
       repayCount: 0,
       transferredCount: 0,
       receivedCount: 0,
+      pendingTxHash: undefined,
+      pendingSeizedAssets: undefined,
+      pendingRepaidAssets: undefined,
+      pendingBadDebtAssets: undefined,
     })
     await indexer.process({ chains: { 11155111: { simulate: [transfer(ALICE, ZERO, 40n)] } } })
     const pool = await indexer.Pool.getOrThrow(POOL_ID)
@@ -219,6 +223,10 @@ describe('lending-token Transfer accounting', () => {
       repayCount: 0,
       transferredCount: 0,
       receivedCount: 0,
+      pendingTxHash: undefined,
+      pendingSeizedAssets: undefined,
+      pendingRepaidAssets: undefined,
+      pendingBadDebtAssets: undefined,
     })
     await indexer.process({
       chains: {

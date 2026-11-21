@@ -160,7 +160,7 @@ describe('pair handlers', () => {
     expect(fromUser.swapCount).toBe(1)
   })
 
-  it('Liquidate records the event, bumps counts, and tracks the borrower', async () => {
+  it('Liquidate records the five emitted fields with the transaction sender as liquidator', async () => {
     const indexer = createTestIndexer()
     await seed(indexer)
     await indexer.process({
@@ -171,17 +171,12 @@ describe('pair handlers', () => {
               contract: 'AmmalgamPair',
               event: 'Liquidate',
               srcAddress: POOL,
-              logIndex: 2,
-              block: { number: testBlockNumber(12), timestamp: 120 },
-              transaction: { hash: '0xliq', from: FROM },
+              logIndex: 3,
+              block: { number: testBlockNumber(13), timestamp: 130 },
+              transaction: { hash: '0xliq-current', from: FROM },
               params: {
                 borrower: BORROWER,
                 to: LIQUIDATOR,
-                seizedLAssets: 10n,
-                seizedXAssets: 20n,
-                seizedYAssets: 30n,
-                repayXAssets: 40n,
-                repayYAssets: 50n,
                 actualRepaidXAssets: 45n,
                 actualRepaidYAssets: 55n,
                 liquidationType: 1n,
@@ -191,14 +186,19 @@ describe('pair handlers', () => {
         },
       },
     })
+
+    const liq = await indexer.Liquidate.getOrThrow(getEventId(CHAIN, '0xliq-current', 3))
+    expect(liq.borrower_id).toBe(BORROWER_ID)
+    expect(liq.liquidator_id).toBe(FROM_ID)
+    expect(liq.recipient_id).toBe(LIQUIDATOR_ID)
+    expect(liq.kind).toBe('SATURATION')
+    expect(liq.actualRepaidXAssets).toBe(45n)
+    expect(liq.actualRepaidYAssets).toBe(55n)
+    expect(liq.liquidationType).toBe(1n)
+
     const pool = await indexer.Pool.getOrThrow(POOL_ID)
     expect(pool.liquidateCount).toBe(1)
     expect(pool.txCount).toBe(1)
-    const liq = await indexer.Liquidate.getOrThrow(getEventId(CHAIN, '0xliq', 2))
-    expect(liq.borrower_id).toBe(BORROWER_ID)
-    expect(liq.liquidator_id).toBe(LIQUIDATOR_ID)
-    expect(liq.seizedXAssets).toBe(20n)
-    expect(liq.liquidationType).toBe(1n)
     const borrower = await indexer.User.getOrThrow(BORROWER_ID)
     expect(borrower.liquidationCount).toBe(1)
   })
@@ -788,6 +788,10 @@ describe('pair handlers', () => {
       repayCount: 0,
       transferredCount: 0,
       receivedCount: 0,
+      pendingTxHash: undefined,
+      pendingSeizedAssets: undefined,
+      pendingRepaidAssets: undefined,
+      pendingBadDebtAssets: undefined,
     })
 
     await indexer.process({
