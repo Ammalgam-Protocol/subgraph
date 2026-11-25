@@ -186,7 +186,7 @@ type Position {
   pendingBadDebtAssets: [BigInt!]
 }
 
-type Deposit {
+type Deposit @index(fields: ["blockNumber", "logIndex"]) {
   id: ID!
   hash: String!
   logIndex: Int!
@@ -202,7 +202,7 @@ type Deposit {
   isProtocolFee: Boolean!
 }
 
-type Withdraw {
+type Withdraw @index(fields: ["blockNumber", "logIndex"]) {
   id: ID!
   hash: String!
   logIndex: Int!
@@ -217,7 +217,7 @@ type Withdraw {
   shares: BigInt
 }
 
-type Borrow {
+type Borrow @index(fields: ["blockNumber", "logIndex"]) {
   id: ID!
   hash: String!
   logIndex: Int!
@@ -234,7 +234,7 @@ type Borrow {
   isPenalty: Boolean!
 }
 
-type Repay {
+type Repay @index(fields: ["blockNumber", "logIndex"]) {
   id: ID!
   hash: String!
   logIndex: Int!
@@ -265,7 +265,7 @@ type Transfer {
   shares: BigInt!
 }
 
-type Swap {
+type Swap @index(fields: ["blockNumber", "logIndex"]) {
   id: ID!
   hash: String!
   logIndex: Int!
@@ -288,7 +288,7 @@ type Swap {
 
 type Sync {
   id: ID!
-  hash: String!
+  hash: String! @index
   logIndex: Int!
   blockNumber: BigInt!
   timestamp: BigInt!
@@ -303,7 +303,7 @@ enum LiquidationKind {
   LEVERAGE
 }
 
-type Liquidate {
+type Liquidate @index(fields: ["blockNumber", "logIndex"]) {
   id: ID!
   hash: String!
   logIndex: Int!
@@ -356,7 +356,7 @@ type InterestAccrued {
   lpInterestL: BigInt!
 }
 
-type BurnBadDebt {
+type BurnBadDebt @index(fields: ["blockNumber", "logIndex"]) {
   id: ID!
   hash: String!
   logIndex: Int!
@@ -367,4 +367,47 @@ type BurnBadDebt {
   tokenType: BigInt!
   badDebtAssets: BigInt!
   badDebtShares: BigInt!
+}
+
+enum GovernanceEventKind {
+  CallScheduled
+  CallExecuted
+  MinDelayChange
+  Cancelled
+  RoleGranted
+  RoleRevoked
+  AllowedAdded
+  AllowedRemoved
+  Upgraded
+  NewFeeToSetter
+  NewFeeTo
+  OwnershipTransferred
+}
+
+type GovernanceEvent {
+  id: ID!
+  kind: GovernanceEventKind!
+  contract: String!
+  hash: String!
+  logIndex: Int!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+  operationId: String
+  index: BigInt
+  target: String
+  value: BigInt
+  data: String
+  predecessor: String
+  delay: BigInt
+  oldDuration: BigInt
+  newDuration: BigInt
+  role: String
+  account: String
+  sender: String
+  implementation: String
+  by: String
+  newOwner: String
+  previousOwner: String
+  feeTo: String
+  feeToSetter: String
 }

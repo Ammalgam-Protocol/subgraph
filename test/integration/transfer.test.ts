@@ -37,7 +37,9 @@ describe.skipIf(!HAS_TOKEN)('Sepolia transfer-stream reconstruction', () => {
     const receiverAfter = await after.Position.getOrThrow(receiverPositionId)
 
     // Delta across the transfer block, not the raw balance
-    expect(senderAfter.shares[BORROW_Y] - (senderBefore?.shares[BORROW_Y] ?? 0n)).toBe(0n)
+    expect(senderAfter.shares[BORROW_Y] - (senderBefore?.shares[BORROW_Y] ?? 0n)).toBe(
+      -MANUAL_TRANSFER_TX.shares,
+    )
     expect(receiverAfter.shares[BORROW_Y] - (receiverBefore?.shares[BORROW_Y] ?? 0n)).toBe(
       MANUAL_TRANSFER_TX.shares,
     )

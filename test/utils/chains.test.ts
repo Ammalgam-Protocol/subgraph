@@ -5,12 +5,14 @@ describe('chains utils', () => {
   it('getChainConfig returns Sepolia config', () => {
     const config = getChainConfig(11155111)
     expect(config.nativeTokenDetails.symbol).toBe('ETH')
+    expect(config.whitelistTokens.length).toBeGreaterThan(0)
     expect(config.stablecoinAddresses.length).toBeGreaterThan(0)
   })
 
   it('getChainConfig returns Mainnet config', () => {
     const config = getChainConfig(1)
     expect(config.nativeTokenDetails.symbol).toBe('ETH')
+    expect(config.whitelistTokens.length).toBeGreaterThan(0)
     expect(config.stablecoinAddresses.length).toBeGreaterThan(0)
   })
 

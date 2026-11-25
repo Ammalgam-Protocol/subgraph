@@ -9,8 +9,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: pnpm }
+        with: { node-version: 24.22.1, cache: pnpm }
       - run: pnpm install --frozen-lockfile
+      - name: Configs share one contracts section
+        run: |
+          diff <(sed -n '/^address_format:/,/^chains:/p' config.yaml) \
+               <(sed -n '/^address_format:/,/^chains:/p' config.mainnet.yaml)
+      # Mainnet first: the default codegen below must be the last to write the generated types.
+      - run: pnpm envio codegen --config config.mainnet.yaml
       - run: pnpm codegen
       - run: pnpm check
       - run: pnpm exec ast-grep scan
@@ -23,7 +29,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: pnpm }
+        with: { node-version: 24.22.1, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - name: Integration replay (skips without token)
         env: { ENVIO_API_TOKEN: "${{ secrets.ENVIO_API_TOKEN }}" }

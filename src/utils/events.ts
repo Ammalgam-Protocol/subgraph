@@ -1,3 +1,5 @@
+import type { GovernanceEvent } from 'envio'
+
 import { getEventId } from './id'
 
 export type EventHeaderSource = {
@@ -7,7 +9,7 @@ export type EventHeaderSource = {
   transaction: { hash: string }
 }
 
-function header(event: EventHeaderSource) {
+export function header(event: EventHeaderSource) {
   return {
     id: getEventId(event.chainId, event.transaction.hash, event.logIndex),
     hash: event.transaction.hash,
@@ -64,5 +66,48 @@ export function transferEventFields(
     asset_id: args.assetId,
     amount: args.amount,
     shares: args.shares,
+  }
+}
+
+type GovernanceFieldName = Exclude<
+  keyof GovernanceEvent,
+  keyof ReturnType<typeof header> | 'kind' | 'contract'
+>
+
+const UNSET_GOVERNANCE_FIELDS: Record<GovernanceFieldName, undefined> = {
+  operationId: undefined,
+  index: undefined,
+  target: undefined,
+  value: undefined,
+  data: undefined,
+  predecessor: undefined,
+  delay: undefined,
+  oldDuration: undefined,
+  newDuration: undefined,
+  role: undefined,
+  account: undefined,
+  sender: undefined,
+  implementation: undefined,
+  by: undefined,
+  newOwner: undefined,
+  previousOwner: undefined,
+  feeTo: undefined,
+  feeToSetter: undefined,
+}
+
+export function governanceEventFields(
+  event: EventHeaderSource,
+  args: {
+    kind: GovernanceEvent['kind']
+    contract: string
+    fields: Partial<Pick<GovernanceEvent, GovernanceFieldName>>
+  },
+): GovernanceEvent {
+  return {
+    ...header(event),
+    ...UNSET_GOVERNANCE_FIELDS,
+    kind: args.kind,
+    contract: args.contract,
+    ...args.fields,
   }
 }
